@@ -4,10 +4,13 @@ import SwiftUI
 struct StreamPreset: Decodable, Identifiable {
     let id: String
     let title: String
-    let description: String
     let maxSize: Int
     let fps: Int
     let bitRateMbps: Int
+    let videoBufferMs: Int
+    let audioBufferMs: Int
+
+    var detail: String { "\(maxSize) px · до \(fps) FPS · \(bitRateMbps) Мбит/с" }
 
     static let catalog: [StreamPreset] = {
         guard let url = Bundle.main.url(forResource: "stream-presets", withExtension: "json"),
@@ -34,22 +37,42 @@ final class Session: ObservableObject {
     private var player: Process?
     private var runID = UUID()
     private var restartForPreset = false
+    private var adaptive = AdaptiveQuality()
+
+    private var activePreset: StreamPreset? {
+        let presets = StreamPreset.catalog
+        if selectedPreset == AdaptiveQuality.id {
+            return presets.indices.contains(adaptive.index) ? presets[adaptive.index] : nil
+        }
+        return presets.first { $0.id == selectedPreset }
+    }
+
+    var qualityDetail: String {
+        guard let preset = activePreset else { return "" }
+        if selectedPreset != AdaptiveQuality.id { return preset.detail }
+        return phase == .streaming ? "Сейчас \(preset.title.lowercased()) · \(preset.detail)" : "Сам подберёт качество"
+    }
 
     init(preferences: UserDefaults = .standard) {
         self.preferences = preferences
         let saved = preferences.string(forKey: "streamPreset")
-        selectedPreset = StreamPreset.catalog.first { $0.id == saved }?.id ?? "balance"
+        selectedPreset = StreamPreset.catalog.first { $0.id == saved }?.id ?? AdaptiveQuality.id
     }
 
     func selectPreset(_ id: String) {
-        guard id != selectedPreset, StreamPreset.catalog.contains(where: { $0.id == id }) else { return }
+        guard id != selectedPreset,
+              id == AdaptiveQuality.id || StreamPreset.catalog.contains(where: { $0.id == id }) else { return }
+        adaptive = AdaptiveQuality()
         selectedPreset = id
         preferences.set(id, forKey: "streamPreset")
-        if !restartForPreset, let player {
-            restartForPreset = true
-            phase = .starting
-            if player.isRunning { player.terminate() }
-        }
+        restartPlayer()
+    }
+
+    private func restartPlayer() {
+        guard !restartForPreset, let player else { return }
+        restartForPreset = true
+        phase = .starting
+        if player.isRunning { player.terminate() }
     }
 
     func startAtLaunch() {
@@ -59,6 +82,11 @@ final class Session: ObservableObject {
     }
 
     func start(manual: Endpoint? = nil, canReconnect: Bool = true) {
+        adaptive = AdaptiveQuality()
+        connect(manual: manual, canReconnect: canReconnect)
+    }
+
+    private func connect(manual: Endpoint? = nil, canReconnect: Bool = true) {
         stop()
         guard let tools = Toolchain.find() else {
             phase = .failed("Установи scrcpy и Android Platform Tools, затем попробуй снова.")
@@ -102,21 +130,26 @@ final class Session: ObservableObject {
     }
 
     private func launchPlayer(_ headset: Headset, tools: Toolchain, id: UUID, canReconnect: Bool) {
-        guard let preset = StreamPreset.catalog.first(where: { $0.id == selectedPreset }) else {
+        guard let preset = activePreset else {
             phase = .failed("Файл режимов трансляции отсутствует. Переустанови MonoRelay.")
             return
         }
         var arguments = [
             "--serial=\(headset.transport)", "--max-size=\(preset.maxSize)", "--max-fps=\(preset.fps)",
-            "--video-bit-rate=\(preset.bitRateMbps)M", "--no-control", "--hwdec=disabled",
+            "--video-bit-rate=\(preset.bitRateMbps)M", "--video-buffer=\(preset.videoBufferMs)",
+            "--no-control", "--hwdec=disabled", "--pause-on-exit=false",
             "--window-title=MonoRelay · Трансляция", "--window-width=880", "--window-height=495",
         ]
+        if selectedPreset == AdaptiveQuality.id {
+            adaptive.beginStream()
+            arguments.append("--print-fps")
+        }
         if preferences.object(forKey: "singleEye") == nil || preferences.bool(forKey: "singleEye"),
            let crop = headset.crop {
             arguments += ["--crop=\(crop)", "--render-fit=stretched"]
         }
         if preferences.object(forKey: "playbackAudio") == nil || preferences.bool(forKey: "playbackAudio") {
-            arguments += ["--audio-source=playback", "--audio-dup"]
+            arguments += ["--audio-source=playback", "--audio-dup", "--audio-buffer=\(preset.audioBufferMs)"]
         } else {
             arguments += ["--no-audio"]
         }
@@ -137,8 +170,11 @@ final class Session: ObservableObject {
             let data = file.availableData
             if data.isEmpty {
                 file.readabilityHandler = nil
-            } else if reader.hasFrame(data) {
-                Task { @MainActor [weak self] in self?.streamReady(id: id) }
+            } else {
+                let events = reader.consume(data)
+                if !events.isEmpty {
+                    Task { @MainActor [weak self] in self?.handleOutput(events, id: id, cap: preset.fps) }
+                }
             }
         }
         process.terminationHandler = { [weak self] ended in
@@ -164,18 +200,34 @@ final class Session: ObservableObject {
         }
     }
 
-    private func streamReady(id: UUID) {
-        guard runID == id, phase == .starting, !restartForPreset, player?.isRunning == true else { return }
-        phase = .streaming
+    private func handleOutput(_ events: [StreamOutput.Event], id: UUID, cap: Int) {
+        guard runID == id, !restartForPreset, let player, player.isRunning else { return }
+        for event in events {
+            switch event {
+            case .ready:
+                phase = .streaming
+            case .frames(let rendered, let skipped):
+                guard selectedPreset == AdaptiveQuality.id, phase == .streaming else { continue }
+                guard NSWorkspace.shared.frontmostApplication?.processIdentifier == player.processIdentifier else {
+                    adaptive.beginStream()
+                    continue
+                }
+                if adaptive.sample(rendered: rendered, skipped: skipped, cap: cap,
+                                   lastIndex: StreamPreset.catalog.count - 1) {
+                    restartPlayer()
+                    return
+                }
+            }
+        }
     }
 
     private func playerExited(_ code: Int32, id: UUID, canReconnect: Bool) {
         guard runID == id else { return }
         player = nil
         if restartForPreset {
-            start()
+            connect()
         } else if code == 2 && canReconnect {
-            start(canReconnect: false)
+            connect(canReconnect: false)
         } else if code == 0 {
             stop()
         } else {
@@ -187,18 +239,28 @@ final class Session: ObservableObject {
 }
 
 private final class StreamOutput {
-    private var tail = ""
-    private var reported = false
+    enum Event {
+        case ready
+        case frames(rendered: Int, skipped: Int)
+    }
 
-    func hasFrame(_ bytes: Data) -> Bool {
-        guard !reported else { return false }
+    private var tail = ""
+
+    func consume(_ bytes: Data) -> [Event] {
         tail += String(decoding: bytes, as: UTF8.self)
-        if tail.contains("Texture:") {
-            reported = true
-            return true
+        var lines = tail.components(separatedBy: "\n")
+        tail = String((lines.popLast() ?? "").suffix(1024))
+        return lines.compactMap { line in
+            if line.hasPrefix("INFO: Texture:") { return .ready }
+            let fields = line.split(whereSeparator: \.isWhitespace)
+            guard fields.count >= 3, fields[0] == "INFO:", fields[2] == "fps",
+                  let rendered = Int(fields[1]), (0...1000).contains(rendered) else { return nil }
+            if fields.count == 3 { return .frames(rendered: rendered, skipped: 0) }
+            guard fields.count == 6, fields[3].hasPrefix("(+"),
+                  fields[4] == "frames", fields[5] == "skipped)",
+                  let skipped = Int(fields[3].dropFirst(2)), (0...1000).contains(skipped) else { return nil }
+            return .frames(rendered: rendered, skipped: skipped)
         }
-        tail = String(tail.suffix(64))
-        return false
     }
 }
 
@@ -278,15 +340,14 @@ struct HomeView: View {
                 Picker("Режим трансляции", selection: Binding(
                     get: { session.selectedPreset }, set: { session.selectPreset($0) }
                 )) {
+                    Text("Авто").tag(AdaptiveQuality.id)
                     ForEach(StreamPreset.catalog) { preset in
                         Text(preset.title).tag(preset.id)
                     }
                 }
                 .labelsHidden()
                 .pickerStyle(.segmented)
-                if let preset = StreamPreset.catalog.first(where: { $0.id == session.selectedPreset }) {
-                    Text(preset.description).font(.caption).foregroundStyle(.secondary)
-                }
+                Text(session.qualityDetail).font(.caption).foregroundStyle(.secondary)
             }
 
             HStack(spacing: 10) {

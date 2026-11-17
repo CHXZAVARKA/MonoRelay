@@ -1,13 +1,18 @@
 using System.Diagnostics;
 using System.Net.NetworkInformation;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 
 namespace MonoRelay.Windows;
 
-internal sealed record Preset(string Id, string Title, string Description, int MaxSize, int Fps, int BitRateMbps);
+internal sealed record Preset(string Id, string Title, int MaxSize, int Fps, int BitRateMbps,
+                              int VideoBufferMs, int AudioBufferMs)
+{
+    internal string Detail => $"{MaxSize} px · до {Fps} FPS · {BitRateMbps} Мбит/с";
+}
 
-internal sealed record Preferences(string Preset = "balance", string? Serial = null, string[]? Addresses = null)
+internal sealed record Preferences(string Preset = AdaptiveQuality.Id, string? Serial = null, string[]? Addresses = null)
 {
     private static string Location => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
                                                    "MonoRelay", "settings.json");
@@ -47,6 +52,11 @@ internal static class Program
 
 internal sealed class RelayForm : Form
 {
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    private sealed record QualityChoice(string Id, string Title);
+    private AdaptiveQuality adaptive = new();
     private readonly QuestConnection connection = new(Path.Combine(AppContext.BaseDirectory, "Tools"));
     private readonly Label title = new() { Text = "Трансляция Quest", AutoSize = true, Font = new Font("Segoe UI", 17, FontStyle.Bold) };
     private readonly Label status = new() { AutoSize = true, MaximumSize = new Size(400, 0), Text = "Готово к подключению" };
@@ -86,10 +96,12 @@ internal sealed class RelayForm : Form
         layout.Controls.Add(hint);
         layout.Controls.Add(buttons);
         Controls.Add(layout);
-        mode.DisplayMember = nameof(Preset.Title);
-        mode.DataSource = presets;
-        mode.SelectedIndex = Math.Max(0, Array.FindIndex(presets, profile => profile.Id == preferences.Preset));
-        hint.Text = Current.Description;
+        var choices = new[] { new QualityChoice(AdaptiveQuality.Id, "Авто") }
+            .Concat(presets.Select(preset => new QualityChoice(preset.Id, preset.Title))).ToArray();
+        mode.DisplayMember = nameof(QualityChoice.Title);
+        mode.DataSource = choices;
+        mode.SelectedIndex = Math.Max(0, Array.FindIndex(choices, choice => choice.Id == preferences.Preset));
+        UpdateQualityDetail();
         mode.SelectedIndexChanged += (_, _) => SetPreset();
         action.Click += async (_, _) =>
         {
@@ -103,6 +115,7 @@ internal sealed class RelayForm : Form
             player.Refresh();
             if (player.MainWindowHandle == IntPtr.Zero) return;
             sawWindow = true;
+            UpdateQualityDetail();
             ShowState("Трансляция запущена", "Остановить", false);
             frame.Stop();
         };
@@ -111,7 +124,16 @@ internal sealed class RelayForm : Form
         AcceptButton = action;
     }
 
-    private Preset Current => mode.SelectedItem as Preset ?? presets[1];
+    private string SelectedQuality => (mode.SelectedItem as QualityChoice)?.Id ?? AdaptiveQuality.Id;
+    private bool IsAuto => SelectedQuality == AdaptiveQuality.Id;
+    private Preset Current => IsAuto ? presets[adaptive.Index] : presets.First(p => p.Id == SelectedQuality);
+
+    private void UpdateQualityDetail()
+    {
+        var preset = Current;
+        hint.Text = !IsAuto ? preset.Detail
+            : sawWindow ? $"Сейчас {preset.Title.ToLowerInvariant()} · {preset.Detail}" : "Сам подберёт качество";
+    }
 
     private void ShowState(string message, string button, bool canEnterIP)
     {
@@ -140,9 +162,15 @@ internal sealed class RelayForm : Form
 
     private void SetPreset()
     {
-        preferences = preferences with { Preset = Current.Id };
+        adaptive = new();
+        preferences = preferences with { Preset = SelectedQuality };
         preferences.Save();
-        hint.Text = Current.Description;
+        UpdateQualityDetail();
+        RestartPlayer();
+    }
+
+    private void RestartPlayer()
+    {
         if (player is null || restartForPreset) return;
         restartForPreset = true;
         ShowState("Применяем режим…", "Отменить", false);
@@ -156,6 +184,8 @@ internal sealed class RelayForm : Form
         pending?.Cancel();
         pending = null;
         frame.Stop();
+        sawWindow = false;
+        UpdateQualityDetail();
         var previous = player;
         player = null;
         if (previous is not null) EndPlayer(previous);
@@ -169,8 +199,9 @@ internal sealed class RelayForm : Form
         catch (System.ComponentModel.Win32Exception) when (process.HasExited) { }
     }
 
-    private async Task Start(Endpoint? endpoint = null, bool retry = false)
+    private async Task Start(Endpoint? endpoint = null, bool retry = false, bool keepAdaptive = false)
     {
+        if (!keepAdaptive) adaptive = new();
         Stop();
         if (!connection.IsInstalled)
         {
@@ -218,13 +249,29 @@ internal sealed class RelayForm : Form
     {
         var preset = Current;
         var args = new List<string> { $"--serial={headset.Transport}", $"--max-size={preset.MaxSize}",
-            $"--max-fps={preset.Fps}", $"--video-bit-rate={preset.BitRateMbps}M", "--no-control", "--hwdec=disabled",
+            $"--max-fps={preset.Fps}", $"--video-bit-rate={preset.BitRateMbps}M", $"--video-buffer={preset.VideoBufferMs}",
+            "--no-control", "--hwdec=disabled", "--pause-on-exit=false",
             "--window-title=MonoRelay · Трансляция", "--window-width=880", "--window-height=495",
-            "--audio-source=playback", "--audio-dup" };
+            "--audio-source=playback", "--audio-dup", $"--audio-buffer={preset.AudioBufferMs}" };
+        var automatic = IsAuto;
+        if (automatic)
+        {
+            adaptive.BeginStream();
+            args.Add("--print-fps");
+        }
         if (headset.Crop is not null) args.AddRange([$"--crop={headset.Crop}", "--render-fit=stretched"]);
         var info = connection.StartInfo(connection.Player, args);
         info.Environment["ADB"] = connection.Adb;
+        info.RedirectStandardOutput = automatic;
         var process = new Process { StartInfo = info, EnableRaisingEvents = true };
+        if (automatic)
+        {
+            process.OutputDataReceived += (_, sample) =>
+            {
+                if (AdaptiveQuality.Parse(sample.Data) is { } frames && !IsDisposed && IsHandleCreated)
+                    BeginInvoke(() => ObserveFrames(id, frames, preset.Fps));
+            };
+        }
         process.Exited += (_, _) =>
         {
             var exit = process.ExitCode;
@@ -235,8 +282,8 @@ internal sealed class RelayForm : Form
                     if (id != generation) return;
                     player = null;
                     frame.Stop();
-                    if (restartForPreset) await Start();
-                    else if (exit == 2 && !retry) await Start(retry: true);
+                    if (restartForPreset) await Start(keepAdaptive: true);
+                    else if (exit == 2 && !retry) await Start(retry: true, keepAdaptive: true);
                     else if (exit == 0) Stop();
                     else ShowState("Трансляция прервалась. Проверь Wi-Fi и состояние Quest.", "Подключить", true);
                 });
@@ -251,8 +298,21 @@ internal sealed class RelayForm : Form
             throw;
         }
         player = process;
+        if (automatic) process.BeginOutputReadLine();
         sawWindow = false;
         ShowState("Ожидаем изображение с Quest…", "Отменить", false);
         frame.Start();
+    }
+
+    private void ObserveFrames(Guid id, (int Rendered, int Skipped) frames, int cap)
+    {
+        if (id != generation || player is null || player.HasExited || !sawWindow || !IsAuto || restartForPreset) return;
+        player.Refresh();
+        if (GetForegroundWindow() != player.MainWindowHandle)
+        {
+            adaptive.BeginStream();
+            return;
+        }
+        if (adaptive.Sample(frames.Rendered, frames.Skipped, cap, presets.Length - 1)) RestartPlayer();
     }
 }

@@ -1,5 +1,5 @@
 diff --git a/app/build.gradle.kts b/app/build.gradle.kts
-index 6a5a392..89ea8c9 100644
+index 6a5a392..0b1c14e 100644
 --- a/app/build.gradle.kts
 +++ b/app/build.gradle.kts
 @@ -105,11 +105,11 @@ android {
@@ -12,8 +12,8 @@ index 6a5a392..89ea8c9 100644
          targetSdk = 36
 -        versionCode = 86
 -        versionName = "3.5.7"
-+        versionCode = 2
-+        versionName = "0.2.0"
++        versionCode = 4
++        versionName = "0.4.0"
          testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
          buildConfigField("String", "PUBLISHER_NAME", buildConfigString(publisherName))
          buildConfigField("String", "PUBLISHER_EMAIL", buildConfigString(publisherEmail))
@@ -161,25 +161,114 @@ index 4f22c27..4210fd5 100644
                      targetSdk = targetSdk,
                      serverLog = log,
                  )
+diff --git a/app/src/main/java/com/scrcpy/remote/session/MirrorViewModel.kt b/app/src/main/java/com/scrcpy/remote/session/MirrorViewModel.kt
+index bedc9cd..7ef7a8f 100644
+--- a/app/src/main/java/com/scrcpy/remote/session/MirrorViewModel.kt
++++ b/app/src/main/java/com/scrcpy/remote/session/MirrorViewModel.kt
+@@ -2962,8 +2962,7 @@ class MirrorViewModel @JvmOverloads constructor(
+     @androidx.annotation.VisibleForTesting
+     internal fun streamCodecIds(): Pair<Int?, Int?>? = session?.let { it.videoReader?.codecId to it.audioReader?.codecId }
+
+-    /** The decoder's own frame counts, read directly rather than through the sampled diagnostics. */
+-    @androidx.annotation.VisibleForTesting
++    /** The decoder's own frame counts for quality adjustment and diagnostics. */
+     internal fun liveFrameStats(): VideoFrameStats? = video?.frameStats()
+
+     fun reconnect() {
 diff --git a/app/src/main/java/com/scrcpy/remote/ui/MirrorActivity.kt b/app/src/main/java/com/scrcpy/remote/ui/MirrorActivity.kt
-index b07e364..f972502 100644
+index b07e364..d0b8702 100644
 --- a/app/src/main/java/com/scrcpy/remote/ui/MirrorActivity.kt
 +++ b/app/src/main/java/com/scrcpy/remote/ui/MirrorActivity.kt
-@@ -500,7 +500,7 @@ class MirrorActivity : ComponentActivity() {
+@@ -36,6 +36,7 @@ import kotlinx.coroutines.flow.combine
+ import kotlinx.coroutines.Dispatchers
+ import kotlinx.coroutines.Job
+ import kotlinx.coroutines.delay
++import kotlinx.coroutines.isActive
+ import kotlinx.coroutines.launch
+ import kotlinx.coroutines.withContext
+ import androidx.compose.foundation.background
+@@ -113,6 +114,7 @@ import com.scrcpy.remote.session.RecordingSound
+ import com.scrcpy.remote.session.SessionOverrides
+ import com.scrcpy.remote.session.SessionDisplay
+ import com.scrcpy.remote.session.StreamChoice
++import com.scrcpy.remote.session.VideoFrameStats
+ import com.scrcpy.remote.session.SessionHold
+ import com.scrcpy.remote.session.requiresReconnectFrom
+
+@@ -500,7 +502,41 @@ class MirrorActivity : ComponentActivity() {
          // whatever this device would otherwise use, and only for this session: nothing here is
          // written back, so the saved profile is untouched when the session ends.
          val linkRequest = LinkRequest.from(intent)
 -        val settingsFor = { base: MirrorSettings -> linkRequest.applyTo(base) }
-+        val settingsFor = { base: MirrorSettings -> linkRequest.applyTo(base.copy(autoReconnect = true)) }
++        val presets = MonoRelayPreset.read(this)
++        val selection = getSharedPreferences("mono_relay", Context.MODE_PRIVATE).getString("preset", AUTO_QUALITY)
++        val manualPreset = presets.firstOrNull { it.id == selection }
++        val adaptive = AdaptiveQuality()
++        var activePreset by mutableStateOf(manualPreset ?: presets[adaptive.index])
++        val settingsFor = { base: MirrorSettings ->
++            activePreset.applyTo(linkRequest.applyTo(base.copy(autoReconnect = true)))
++        }
++        if (manualPreset == null) {
++            lifecycleScope.launch {
++                repeatOnLifecycle(Lifecycle.State.RESUMED) {
++                    adaptive.beginStream()
++                    var previous: VideoFrameStats? = null
++                    var previousSession: Long? = null
++                    while (isActive) {
++                        delay(1000)
++                        val connected = viewModel.state.value as? MirrorUiState.Connected
++                        val report = if (connected != null && hasWindowFocus() && canUseSessionTools() &&
++                            !viewModel.recording.value) viewModel.liveFrameStats() else null
++                        val last = previous
++                        if (report == null || previousSession != connected?.sessionGeneration) {
++                            adaptive.beginStream()
++                        } else if (last != null && adaptive.sample(
++                                report.surfaceFrames - last.surfaceFrames,
++                                report.skippedFrames - last.skippedFrames,
++                                activePreset.fps, presets.lastIndex)) {
++                            activePreset = presets[adaptive.index]
++                            viewModel.reconnect()
++                        }
++                        previous = report
++                        previousSession = connected?.sessionGeneration
++                    }
++                }
++            }
++        }
          // A recreated recording offer must not revive a session the user explicitly ended.
          if (!exitAfterRecording) {
              viewModel.connect(host, port, settingsFor(initialSettings), allowPortDiscovery = savedDeviceId != null,
+@@ -582,6 +618,7 @@ class MirrorActivity : ComponentActivity() {
+                         savedDeviceId = savedDeviceId,
+                         screenshots = screenshots,
+                         linkRequest = linkRequest,
++                        qualityPreset = activePreset,
+                         pipMode = pipMode,
+                         hideSessionTools = hideSessionTools,
+                         pipSupported = supportsCameraPip,
+@@ -850,6 +887,7 @@ private fun MirrorScreen(
+     savedDeviceId: String?,
+     screenshots: ScreenshotViewModel,
+     linkRequest: LinkRequest,
++    qualityPreset: MonoRelayPreset,
+     pipMode: Boolean,
+     hideSessionTools: Boolean,
+     pipSupported: Boolean,
+@@ -990,7 +1028,7 @@ private fun MirrorScreen(
+         // permanently unapplied: the banner never cleared, and applying it reconnected with the
+         // same override and the same mismatch.
+         activeSettings?.let {
+-            sessionOverrides.applyTo(linkRequest.applyTo(configured)).requiresReconnectFrom(it)
++            sessionOverrides.applyTo(qualityPreset.applyTo(linkRequest.applyTo(configured))).requiresReconnectFrom(it)
+         } == true
+     val snackbar = remember { SnackbarHostState() }
+     // The question is about this session's settings. Once nothing is waiting — the session
 diff --git a/app/src/main/java/com/scrcpy/remote/ui/MonoRelayActivity.kt b/app/src/main/java/com/scrcpy/remote/ui/MonoRelayActivity.kt
 new file mode 100644
-index 0000000..0b84218
+index 0000000..7774302
 --- /dev/null
 +++ b/app/src/main/java/com/scrcpy/remote/ui/MonoRelayActivity.kt
-@@ -0,0 +1,162 @@
+@@ -0,0 +1,156 @@
 +package com.scrcpy.remote.ui
 +
 +import android.content.Context
@@ -192,7 +281,8 @@ index 0000000..0b84218
 +import androidx.compose.foundation.isSystemInDarkTheme
 +import androidx.compose.foundation.layout.Arrangement
 +import androidx.compose.foundation.layout.Column
-+import androidx.compose.foundation.layout.Row
++import androidx.compose.foundation.layout.ExperimentalLayoutApi
++import androidx.compose.foundation.layout.FlowRow
 +import androidx.compose.foundation.layout.fillMaxSize
 +import androidx.compose.foundation.layout.fillMaxWidth
 +import androidx.compose.foundation.layout.padding
@@ -218,29 +308,20 @@ index 0000000..0b84218
 +import kotlinx.coroutines.launch
 +import kotlinx.coroutines.suspendCancellableCoroutine
 +import kotlinx.coroutines.withTimeoutOrNull
-+import org.json.JSONArray
 +
 +class MonoRelayActivity : ComponentActivity() {
-+    private data class Preset(val id: String, val label: String, val maxSize: Int, val fps: Int, val bitrate: Int)
 +    private data class Address(val ip: String, val port: Int)
 +
 +    private val preferences by lazy { getSharedPreferences("mono_relay", Context.MODE_PRIVATE) }
-+    private val presets by lazy {
-+        val data = JSONArray(assets.open("stream-presets.json").bufferedReader().use { it.readText() })
-+        (0 until data.length()).map { index ->
-+            data.getJSONObject(index).let {
-+                Preset(it.getString("id"), it.getString("title"), it.getInt("maxSize"),
-+                    it.getInt("fps"), it.getInt("bitRateMbps"))
-+            }
-+        }
-+    }
-+    private var selected by mutableStateOf("balance")
++    private val presets by lazy { MonoRelayPreset.read(this) }
++    private var selected by mutableStateOf(AUTO_QUALITY)
 +    private var address by mutableStateOf("")
 +    private var searching by mutableStateOf(false)
 +
++    @OptIn(ExperimentalLayoutApi::class)
 +    override fun onCreate(savedInstanceState: Bundle?) {
 +        super.onCreate(savedInstanceState)
-+        selected = preferences.getString("preset", "balance") ?: "balance"
++        selected = preferences.getString("preset", AUTO_QUALITY) ?: AUTO_QUALITY
 +        address = preferences.getString("address", "") ?: ""
 +        setContent {
 +            MaterialTheme(colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()) {
@@ -252,14 +333,17 @@ index 0000000..0b84218
 +                    OutlinedTextField(address, { address = it }, label = { Text("IP Quest") },
 +                        placeholder = { Text("192.168.1.42") }, singleLine = true,
 +                        enabled = !searching, modifier = Modifier.fillMaxWidth())
-+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-+                        presets.forEach { item ->
-+                            FilterChip(selected = selected == item.id, onClick = {
-+                                selected = item.id
-+                                preferences.edit().putString("preset", item.id).apply()
-+                            }, label = { Text(item.label) }, enabled = !searching)
++                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
++                        val choices = listOf(AUTO_QUALITY to "Авто") + presets.map { it.id to it.label }
++                        choices.forEach { (id, label) ->
++                            FilterChip(selected = selected == id, onClick = {
++                                selected = id
++                                preferences.edit().putString("preset", id).apply()
++                            }, label = { Text(label) }, enabled = !searching)
 +                        }
 +                    }
++                    Text(presets.firstOrNull { it.id == selected }?.detail ?: "Сам подберёт качество",
++                        style = MaterialTheme.typography.bodySmall)
 +                    if (searching) {
 +                        CircularProgressIndicator()
 +                        Text("Ищем Quest в локальной сети…")
@@ -278,13 +362,12 @@ index 0000000..0b84218
 +
 +    private fun connect(useDiscovery: Boolean = false) {
 +        val typed = parse(address) ?: return
-+        val preset = presets.firstOrNull { it.id == selected } ?: presets[1]
 +        searching = true
 +        lifecycleScope.launch {
 +            val serial = preferences.getString("serial", null)
 +            val target = if (useDiscovery && serial != null) discover(serial) ?: typed else typed
 +            address = "${target.ip}:${target.port}"
-+            val options = "maxSize=${preset.maxSize}&bitrate=${preset.bitrate}&fps=${preset.fps}&audio=playback&audioDup=true"
++            val options = "audio=playback&audioDup=true"
 +            startActivity(MirrorActivity.newIntent(this@MonoRelayActivity, target.ip, target.port, linkOptions = options))
 +            searching = false
 +        }
@@ -340,6 +423,78 @@ index 0000000..0b84218
 +            runCatching { nsd.discoverServices("_adb._tcp.", NsdManager.PROTOCOL_DNS_SD, listener) }
 +                .onFailure { listener.finish(null) }
 +        }
++    }
++}
+diff --git a/app/src/main/java/com/scrcpy/remote/ui/MonoRelayQuality.kt b/app/src/main/java/com/scrcpy/remote/ui/MonoRelayQuality.kt
+new file mode 100644
+index 0000000..b5e7b13
+--- /dev/null
++++ b/app/src/main/java/com/scrcpy/remote/ui/MonoRelayQuality.kt
+@@ -0,0 +1,66 @@
++package com.scrcpy.remote.ui
++
++import android.content.Context
++import com.scrcpy.remote.data.MirrorSettings
++import org.json.JSONArray
++
++internal const val AUTO_QUALITY = "auto"
++
++internal data class MonoRelayPreset(
++    val id: String,
++    val label: String,
++    val maxSize: Int,
++    val fps: Int,
++    val bitrate: Int,
++    val audioBufferMs: Int,
++) {
++    val detail get() = "$maxSize px · до $fps FPS · $bitrate Мбит/с"
++
++    fun applyTo(settings: MirrorSettings): MirrorSettings = settings.copy(
++        maxSize = maxSize,
++        maxFps = fps,
++        videoBitRateMbps = bitrate,
++        audioBufferMs = audioBufferMs,
++    )
++
++    companion object {
++        fun read(context: Context): List<MonoRelayPreset> {
++            val data = JSONArray(context.assets.open("stream-presets.json").bufferedReader().use { it.readText() })
++            return (0 until data.length()).map { index ->
++                val item = data.getJSONObject(index)
++                MonoRelayPreset(item.getString("id"), item.getString("title"), item.getInt("maxSize"),
++                    item.getInt("fps"), item.getInt("bitRateMbps"), item.getInt("audioBufferMs"))
++            }
++        }
++    }
++}
++
++internal class AdaptiveQuality {
++    var index = 1
++        private set
++    private var warmup = 3
++    private var strained = 0
++    private var stable = 0
++    private var mayRaise = true
++
++    fun beginStream() {
++        warmup = 3
++        strained = 0
++        stable = 0
++    }
++
++    fun sample(rendered: Long, skipped: Long, cap: Int, lastIndex: Int): Boolean {
++        if (warmup > 0) {
++            warmup--
++            return false
++        }
++        strained = if (skipped >= 3 && skipped * 5 >= rendered + skipped) strained + 1 else 0
++        stable = if (mayRaise && skipped == 0L && rendered * 4 >= cap * 3) stable + 1 else 0
++        if (index > 0 && strained >= 4) index--
++        else if (index < lastIndex && stable >= 45) index++
++        else return false
++        mayRaise = false
++        beginStream()
++        return true
 +    }
 +}
 diff --git a/app/src/main/res/drawable/ic_monorelay.xml b/app/src/main/res/drawable/ic_monorelay.xml

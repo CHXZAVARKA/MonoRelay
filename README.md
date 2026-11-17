@@ -27,15 +27,17 @@ Mac and Quest must be able to reach each other. Guest networks can prevent this.
 
 ## Display and sound
 
-The three profiles are shared across platforms. Limits apply to the long edge of the captured frame.
+Choose the quality in the main window. The three manual profiles are shared across platforms. Limits apply to the long edge of the captured frame.
 
-| Profile | Maximum size | Maximum FPS | Video bitrate |
-| --- | ---: | ---: | ---: |
-| Задержка | 1280 px | 30 | 5 Mbps |
-| Баланс (default) | 1600 px | 30 | 8 Mbps |
-| Качество | 1920 px | 60 | 16 Mbps |
+| Profile | Maximum size | Maximum FPS | Video bitrate | Desktop video buffer | Audio buffer |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Задержка | 1280 px | 30 | 5 Mbps | 0 ms | 50 ms |
+| Баланс | 1600 px | 30 | 8 Mbps | 30 ms | 80 ms |
+| Качество | 1920 px | 60 | 16 Mbps | 60 ms | 120 ms |
 
-Selecting a new profile on desktop reconnects the video stream. Actual frame rate and quality depend on the headset output and connection. Both desktop builds use software decoding and duplicate playback audio. MonoRelay includes a one-eye framing preset for a Quest 3S with the 10992×8000 display override. Other sizes use the left half of the capture. Framing can vary with Horizon OS, apps, and capture sizes. On Mac, turn off the one-eye option in **MonoRelay → Settings** for a full capture. You can also turn off Mac audio there. Those settings take effect at the next connection.
+**Авто** is the default on a new installation. It starts at **Баланс**, steps down after repeated frame skips, and can try one step up after 45 seconds of consistently delivered active video. A still scene leaves quality unchanged. It measures the foreground player and briefly reconnects when applying a change. Existing saved selections are kept.
+
+Selecting a new profile on desktop reconnects the video stream. On Android, return to the launcher to change profiles before connecting again. Actual frame rate and quality depend on the headset output and connection. Both desktop builds use software decoding and duplicate playback audio. MonoRelay includes a one-eye framing preset for a Quest 3S with the 10992×8000 display override. Other sizes use the left half of the capture. Framing can vary with Horizon OS, apps, and capture sizes. On Mac, turn off the one-eye option in **MonoRelay → Settings** for a full capture. You can also turn off Mac audio there. Those settings take effect at the next connection.
 
 ## Distribution
 
