@@ -7,7 +7,7 @@ using System.Text.Json;
 namespace MonoRelay.Windows;
 
 internal sealed record Preset(string Id, string Title, int MaxSize, int Fps, int BitRateMbps,
-                              int VideoBufferMs, int AudioBufferMs, string Caption);
+                              int VideoBufferMs, int AudioBufferMs);
 
 internal sealed record Preferences(string Preset = AdaptiveQuality.Id, string? Serial = null, string[]? Addresses = null)
 {
@@ -55,13 +55,14 @@ internal sealed class RelayForm : Form
     private AdaptiveQuality adaptive = new();
     private readonly QuestConnection connection = new(Path.Combine(AppContext.BaseDirectory, "Tools"));
     private readonly Label title = new() { Text = "Трансляция Quest", AutoSize = true, Font = new Font("Segoe UI", 17, FontStyle.Bold) };
-    private readonly Label status = new() { AutoSize = true, Font = new Font("Segoe UI", 10, FontStyle.Bold) };
-    private readonly Label statusDetail = new() { AutoSize = true, MaximumSize = new Size(365, 0), ForeColor = SystemColors.GrayText };
+    private readonly Label status = new() { AutoSize = true, MaximumSize = new Size(360, 0) };
     private readonly Label statusIcon = new() { AutoSize = true, Font = new Font("Segoe MDL2 Assets", 12), Margin = new Padding(0, 3, 8, 0) };
-    private readonly Label hint = new() { AutoSize = true, ForeColor = SystemColors.GrayText, Margin = new Padding(1, 5, 0, 0) };
     private string selectedQuality = AdaptiveQuality.Id;
     private readonly Button action = new() { AutoSize = true, Text = "Подключить" };
-    private readonly Button manual = new() { AutoSize = true, Text = "Ввести IP…" };
+    private readonly Button manual = new() { AutoSize = true, Text = "Ввести IP", Visible = false };
+    private readonly TextBox address = new() { PlaceholderText = "192.168.1.42", Dock = DockStyle.Top,
+        AccessibleName = "IP Quest", Visible = false };
+    private bool enteringAddress;
     private readonly System.Windows.Forms.Timer frame = new() { Interval = 200 };
     private Preferences preferences = Preferences.Load();
     private CancellationTokenSource? pending;
@@ -74,15 +75,16 @@ internal sealed class RelayForm : Form
     internal RelayForm(Preset[] presets)
     {
         this.presets = presets;
-        Text = "MonoRelay"; ClientSize = new Size(440, 270);
+        Text = "MonoRelay"; ClientSize = new Size(440, 242);
         Icon = System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         Font = new Font("Segoe UI", 10);
         AutoScaleMode = AutoScaleMode.Dpi;
         StartPosition = FormStartPosition.CenterScreen;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
-        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 5, Padding = new Padding(24) };
-        foreach (int height in new[] { 42, 13, 65, 62 }) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, height));
+        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 6, Padding = new Padding(24) };
+        foreach (int height in new[] { 42, 8, 48, 34 }) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, height));
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         var header = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, Margin = Padding.Empty };
         header.Controls.Add(new PictureBox { Image = Icon?.ToBitmap(), Size = new Size(28, 28),
@@ -96,19 +98,12 @@ internal sealed class RelayForm : Form
         var state = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = Padding.Empty };
         state.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 26));
         state.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        var messages = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown,
-            WrapContents = false, Margin = Padding.Empty };
-        messages.Controls.AddRange([status, statusDetail]);
+        status.Anchor = AnchorStyles.Left | AnchorStyles.Top;
         state.Controls.Add(statusIcon, 0, 0);
-        state.Controls.Add(messages, 1, 0);
+        state.Controls.Add(status, 1, 0);
         layout.Controls.Add(state, 0, 2);
-
-        var quality = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 2, ColumnCount = 1, Margin = Padding.Empty };
-        quality.RowStyles.Add(new RowStyle(SizeType.Absolute, 31));
-        quality.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        quality.Controls.Add(CreateModes(), 0, 0);
-        quality.Controls.Add(hint, 0, 1);
-        layout.Controls.Add(quality, 0, 3);
+        layout.Controls.Add(CreateModes(), 0, 3);
+        layout.Controls.Add(address, 0, 4);
 
         var buttons = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Margin = Padding.Empty };
         buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
@@ -117,24 +112,30 @@ internal sealed class RelayForm : Form
         action.Anchor = AnchorStyles.Right | AnchorStyles.Top;
         buttons.Controls.Add(manual, 0, 0);
         buttons.Controls.Add(action, 1, 0);
-        layout.Controls.Add(buttons, 0, 4);
+        layout.Controls.Add(buttons, 0, 5);
         Controls.Add(layout);
-        UpdateQualityDetail();
-        ShowState("Готово к подключению", "Подключи компьютер и Quest к одной сети.", "Подключить", true);
+        ShowState("Готово к подключению", "Подключить");
+        address.Text = preferences.Addresses?.FirstOrDefault() ?? "";
+        address.TextChanged += (_, _) => action.Enabled = !enteringAddress || Endpoint.Parse(address.Text) is not null;
         action.Click += async (_, _) =>
         {
             if (player is not null || pending is not null) Stop();
-            else await Start();
+            else if (!enteringAddress) await Start();
+            else if (Endpoint.Parse(address.Text) is { } endpoint) await Start(endpoint);
         };
-        manual.Click += async (_, _) => await EnterAddress();
+        manual.Click += (_, _) =>
+        {
+            SetAddressEntry(!enteringAddress);
+            action.Text = enteringAddress ? "Подключить" : "Повторить";
+            if (enteringAddress) address.Select();
+        };
         frame.Tick += (_, _) =>
         {
             if (player is null || player.HasExited || sawWindow) return;
             player.Refresh();
             if (player.MainWindowHandle == IntPtr.Zero) return;
             sawWindow = true;
-            UpdateQualityDetail();
-            ShowState("Трансляция идёт", "Изображение открыто в отдельном окне.", "Остановить", false);
+            ShowState("Трансляция идёт", "Стоп");
             frame.Stop();
         };
         Shown += async (_, _) => await Start();
@@ -169,38 +170,21 @@ internal sealed class RelayForm : Form
     private bool IsAuto => selectedQuality == AdaptiveQuality.Id;
     private Preset Current => IsAuto ? presets[adaptive.Index] : presets.First(p => p.Id == selectedQuality);
 
-    private void UpdateQualityDetail()
-    {
-        var preset = Current;
-        hint.Text = !IsAuto ? preset.Caption
-            : sawWindow ? $"Сейчас: {preset.Title}" : "Подбирает качество";
-    }
-
-    private void ShowState(string message, string detail, string button, bool canEnterIP)
+    private void ShowState(string message, string button, bool canEnterIP = false)
     {
         status.Text = message;
-        statusDetail.Text = detail;
         statusIcon.Text = sawWindow ? "\ue73e" : "\ue701";
         action.Text = button;
-        manual.Enabled = canEnterIP;
+        manual.Visible = canEnterIP;
+        if (!canEnterIP) SetAddressEntry(false);
     }
 
-    private async Task EnterAddress()
+    private void SetAddressEntry(bool visible)
     {
-        using var prompt = new Form { Text = "Подключиться по адресу", ClientSize = new Size(355, 135),
-            StartPosition = FormStartPosition.CenterParent, FormBorderStyle = FormBorderStyle.FixedDialog,
-            MinimizeBox = false, MaximizeBox = false, Font = Font };
-        var label = new Label { Text = "IP-адрес Quest", Location = new Point(16, 14), AutoSize = true };
-        var address = new TextBox { Text = preferences.Addresses?.FirstOrDefault() ?? "",
-            PlaceholderText = "192.168.1.42:5555", Location = new Point(16, 42), Width = 320, AccessibleName = label.Text };
-        var cancel = new Button { Text = "Отмена", DialogResult = DialogResult.Cancel, Location = new Point(138, 86), Width = 82 };
-        var ok = new Button { Text = "Подключить", DialogResult = DialogResult.OK, Location = new Point(225, 86), Width = 111 };
-        address.TextChanged += (_, _) => ok.Enabled = Endpoint.Parse(address.Text) is not null;
-        ok.Enabled = Endpoint.Parse(address.Text) is not null;
-        prompt.Controls.AddRange([label, address, cancel, ok]);
-        prompt.AcceptButton = ok; prompt.CancelButton = cancel;
-        if (prompt.ShowDialog(this) == DialogResult.OK && Endpoint.Parse(address.Text) is { } endpoint)
-            await Start(endpoint);
+        enteringAddress = visible;
+        address.Visible = visible;
+        manual.Text = visible ? "Скрыть IP" : "Ввести IP";
+        action.Enabled = !visible || Endpoint.Parse(address.Text) is not null;
     }
 
     private void SetPreset()
@@ -208,7 +192,6 @@ internal sealed class RelayForm : Form
         adaptive = new();
         preferences = preferences with { Preset = selectedQuality };
         preferences.Save();
-        UpdateQualityDetail();
         RestartPlayer();
     }
 
@@ -216,7 +199,7 @@ internal sealed class RelayForm : Form
     {
         if (player is null || restartForPreset) return;
         restartForPreset = true;
-        ShowState("Применяем режим…", "Стрим коротко переподключится.", "Отменить", false);
+        ShowState("Меняем качество…", "Стоп");
         EndPlayer(player);
     }
 
@@ -228,11 +211,10 @@ internal sealed class RelayForm : Form
         pending = null;
         frame.Stop();
         sawWindow = false;
-        UpdateQualityDetail();
         var previous = player;
         player = null;
         if (previous is not null) EndPlayer(previous);
-        ShowState("Готово к подключению", "Подключи компьютер и Quest к одной сети.", "Подключить", true);
+        ShowState("Готово к подключению", "Подключить");
     }
 
     private static void EndPlayer(Process process)
@@ -248,19 +230,19 @@ internal sealed class RelayForm : Form
         Stop();
         if (!connection.IsInstalled)
         {
-            ShowState("Не удалось запустить MonoRelay", "Распакуй ZIP целиком. Рядом с приложением нужна папка Tools.", "Подключить", false);
+            ShowState("Распакуй весь ZIP, включая папку Tools.", "Повторить");
             return;
         }
         if (endpoint is not null && !endpoint.IsLocal())
         {
-            ShowState("Не удалось подключиться", "Этот IP не в локальной сети компьютера.", "Подключить", true);
+            ShowState("Этот IP вне локальной сети компьютера.", "Повторить", true);
             return;
         }
 
         var id = generation;
         using var operation = new CancellationTokenSource();
         pending = operation;
-        ShowState("Ищем Quest…", "Quest должен быть включён.", "Отменить", false);
+        ShowState("Ищем Quest…", "Стоп");
         try
         {
             var found = await Task.Run(async () => await connection.Find(preferences.Serial,
@@ -269,7 +251,7 @@ internal sealed class RelayForm : Form
             pending = null;
             if (found is null)
             {
-                ShowState("Не удалось подключиться", "Проверь Wi-Fi и отладку на шлеме. Можно ввести IP вручную.", "Подключить", true);
+                ShowState("Quest не найден. Проверь Wi-Fi и отладку.", "Повторить", true);
                 return;
             }
             var addresses = preferences.Addresses ?? [];
@@ -284,7 +266,7 @@ internal sealed class RelayForm : Form
         {
             if (id != generation) return;
             pending = null;
-            ShowState("Не удалось подключиться", "Проверь содержимое папки Tools.", "Подключить", true);
+            ShowState("Не удалось подключиться. Проверь папку Tools.", "Повторить", true);
         }
     }
 
@@ -328,7 +310,7 @@ internal sealed class RelayForm : Form
                     if (restartForPreset) await Start(keepAdaptive: true);
                     else if (exit == 2 && !retry) await Start(retry: true, keepAdaptive: true);
                     else if (exit == 0) Stop();
-                    else ShowState("Трансляция прервалась", "Проверь Wi-Fi и состояние Quest.", "Подключить", true);
+                    else ShowState("Связь с Quest прервалась.", "Повторить", true);
                 });
         };
         try
@@ -343,7 +325,7 @@ internal sealed class RelayForm : Form
         player = process;
         if (automatic) process.BeginOutputReadLine();
         sawWindow = false;
-        ShowState("Ждём видео…", "Если очки спят, разбуди их.", "Отменить", false);
+        ShowState("Ждём видео…", "Стоп");
         frame.Start();
     }
 

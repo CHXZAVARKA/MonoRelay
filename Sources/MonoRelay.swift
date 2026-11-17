@@ -9,7 +9,6 @@ struct StreamPreset: Decodable, Identifiable {
     let bitRateMbps: Int
     let videoBufferMs: Int
     let audioBufferMs: Int
-    let caption: String
 
     static let catalog: [StreamPreset] = {
         guard let url = Bundle.main.url(forResource: "stream-presets", withExtension: "json"),
@@ -27,10 +26,8 @@ final class Session: ObservableObject {
     }
 
     @Published private(set) var phase = Phase.idle
-    @Published var showAddress = false
-    @Published var address = ""
     @Published private(set) var selectedPreset: String
-    let preferences: UserDefaults
+    private let preferences: UserDefaults
     private var launched = false
     private var job: Task<Void, Never>?
     private var player: Process?
@@ -44,12 +41,6 @@ final class Session: ObservableObject {
             return presets.indices.contains(adaptive.index) ? presets[adaptive.index] : nil
         }
         return presets.first { $0.id == selectedPreset }
-    }
-
-    var qualityDetail: String {
-        guard let preset = activePreset else { return "" }
-        if selectedPreset != AdaptiveQuality.id { return preset.caption }
-        return phase == .streaming ? "Сейчас: \(preset.title)" : "Подбирает качество"
     }
 
     init(preferences: UserDefaults = .standard) {
@@ -143,15 +134,10 @@ final class Session: ObservableObject {
             adaptive.beginStream()
             arguments.append("--print-fps")
         }
-        if preferences.object(forKey: "singleEye") == nil || preferences.bool(forKey: "singleEye"),
-           let crop = headset.crop {
+        if let crop = headset.crop {
             arguments += ["--crop=\(crop)", "--render-fit=stretched"]
         }
-        if preferences.object(forKey: "playbackAudio") == nil || preferences.bool(forKey: "playbackAudio") {
-            arguments += ["--audio-source=playback", "--audio-dup", "--audio-buffer=\(preset.audioBufferMs)"]
-        } else {
-            arguments += ["--no-audio"]
-        }
+        arguments += ["--audio-source=playback", "--audio-dup", "--audio-buffer=\(preset.audioBufferMs)"]
 
         let process = Process()
         let output = Pipe()
@@ -285,167 +271,97 @@ struct MonoRelayApp: App {
                 }
         }
         .windowResizability(.contentSize)
-        .commands {
-            CommandGroup(after: .newItem) {
-                Button("Остановить трансляцию") { session.stop() }
-                    .keyboardShortcut(".", modifiers: [.command])
-                    .disabled(session.phase == .idle)
-            }
-        }
-        Settings { PreferencesView() }
     }
 }
 
 struct HomeView: View {
     @ObservedObject var session: Session
+    @State private var enteringAddress = false
+    @State private var address = ""
+    @FocusState private var addressFocused: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(alignment: .top, spacing: 13) {
-                Image(systemName: "display")
-                    .font(.system(size: 27, weight: .medium))
-                    .symbolRenderingMode(.hierarchical)
-                    .foregroundStyle(Color.accentColor)
-                    .accessibilityHidden(true)
-                    .frame(width: 36)
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Трансляция Quest")
-                        .font(.title2.bold())
-                        .accessibilityAddTraits(.isHeader)
-                }
-            }
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Трансляция Quest")
+                .font(.title2.bold())
+                .accessibilityAddTraits(.isHeader)
 
-            Divider()
-
-            HStack(alignment: .top, spacing: 10) {
+            HStack(spacing: 8) {
                 if isBusy {
                     ProgressView().controlSize(.small).accessibilityHidden(true)
                 } else {
-                    Image(systemName: statusIcon)
+                    Image(systemName: session.phase == .streaming ? "checkmark.circle.fill" : "wifi")
                         .foregroundStyle(session.phase == .streaming ? Color.green : Color.secondary)
                         .accessibilityHidden(true)
                 }
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(statusTitle).font(.headline)
-                    Text(statusDetail)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+                Text(statusText)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .frame(maxWidth: .infinity, minHeight: 59, alignment: .topLeading)
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
             .accessibilityElement(children: .combine)
 
-            VStack(alignment: .leading, spacing: 6) {
-                Picker("Режим трансляции", selection: Binding(
-                    get: { session.selectedPreset }, set: { session.selectPreset($0) }
-                )) {
-                    Text("Авто").tag(AdaptiveQuality.id)
-                    ForEach(StreamPreset.catalog) { preset in
-                        Text(preset.title).tag(preset.id)
-                    }
+            Picker("Качество", selection: Binding(
+                get: { session.selectedPreset }, set: { session.selectPreset($0) }
+            )) {
+                Text("Авто").tag(AdaptiveQuality.id)
+                ForEach(StreamPreset.catalog) { preset in
+                    Text(preset.title).tag(preset.id)
                 }
-                .labelsHidden()
-                .pickerStyle(.segmented)
-                Text(session.qualityDetail).font(.caption).foregroundStyle(.secondary)
+            }
+            .labelsHidden()
+            .pickerStyle(.segmented)
+
+            if enteringAddress {
+                TextField("IP Quest", text: $address, prompt: Text("192.168.1.42"))
+                    .textFieldStyle(.roundedBorder)
+                    .focused($addressFocused)
             }
 
-            HStack(spacing: 10) {
-                Button("Ввести IP…") { session.showAddress = true }
-                    .disabled(isBusy || session.phase == .streaming)
+            HStack {
+                if failed {
+                    Button(enteringAddress ? "Скрыть IP" : "Ввести IP") {
+                        enteringAddress.toggle()
+                        addressFocused = enteringAddress
+                    }
+                }
                 Spacer()
-                if isBusy {
-                    Button("Отменить") { session.stop() }.keyboardShortcut(.cancelAction)
-                } else if session.phase == .streaming {
-                    Button("Остановить") { session.stop() }
+                if isBusy || session.phase == .streaming {
+                    Button("Стоп") { session.stop() }.keyboardShortcut(.cancelAction)
                 } else {
-                    Button("Подключить") { session.start() }
+                    Button(failed && !enteringAddress ? "Повторить" : "Подключить", action: connect)
                         .keyboardShortcut(.defaultAction)
                         .buttonStyle(.borderedProminent)
+                        .disabled(enteringAddress && Endpoint(address) == nil)
                 }
             }
         }
         .padding(24)
         .frame(width: 420)
-        .sheet(isPresented: $session.showAddress) {
-            AddressSheet(address: $session.address) { endpoint in
-                session.showAddress = false
-                session.start(manual: endpoint)
-            } cancel: {
-                session.showAddress = false
-            }
-        }
+    }
+
+    private func connect() {
+        let endpoint = enteringAddress ? Endpoint(address) : nil
+        if enteringAddress && endpoint == nil { return }
+        enteringAddress = false
+        session.start(manual: endpoint)
     }
 
     private var isBusy: Bool { session.phase == .searching || session.phase == .starting }
 
-    private var statusIcon: String {
-        if case .failed = session.phase { return "exclamationmark.circle" }
-        return session.phase == .streaming ? "checkmark.circle.fill" : "wifi"
+    private var failed: Bool {
+        if case .failed = session.phase { return true }
+        return false
     }
 
-    private var statusTitle: String {
+    private var statusText: String {
         switch session.phase {
         case .idle: "Готово к подключению"
         case .searching: "Ищем Quest…"
         case .starting: "Ждём видео…"
         case .streaming: "Трансляция идёт"
-        case .failed: "Не удалось подключиться"
-        }
-    }
-
-    private var statusDetail: String {
-        switch session.phase {
-        case .idle: "Подключи Mac и Quest к одной сети."
-        case .searching: "Quest должен быть включён."
-        case .starting: "Если очки спят, разбуди их."
-        case .streaming: "Изображение открыто в отдельном окне."
         case .failed(let message): message
         }
-    }
-}
-
-struct AddressSheet: View {
-    @Binding var address: String
-    @FocusState private var focused: Bool
-    let connect: (Endpoint) -> Void
-    let cancel: () -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 13) {
-            Text("Подключиться по адресу").font(.headline)
-            Text("Возьми IP из настроек Wi‑Fi в очках. Если отладка показывает порт, добавь его после двоеточия.")
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            TextField("IP-адрес Quest", text: $address, prompt: Text("192.168.1.42"))
-                .focused($focused)
-            HStack {
-                Spacer()
-                Button("Отмена", action: cancel).keyboardShortcut(.cancelAction)
-                Button("Подключить") {
-                    if let endpoint = Endpoint(address) { connect(endpoint) }
-                }
-                .keyboardShortcut(.defaultAction)
-                .disabled(Endpoint(address) == nil)
-            }
-        }
-        .padding(24)
-        .frame(width: 365)
-        .onAppear { focused = true }
-    }
-}
-
-struct PreferencesView: View {
-    @AppStorage("singleEye") private var singleEye = true
-    @AppStorage("playbackAudio") private var playbackAudio = true
-
-    var body: some View {
-        Form {
-            Toggle("Показывать изображение одного глаза", isOn: $singleEye)
-            Toggle("Воспроизводить звук на Mac", isOn: $playbackAudio)
-            Text("Применится при следующем подключении.")
-                .foregroundStyle(.secondary)
-        }
-        .padding(22)
-        .frame(width: 375)
     }
 }

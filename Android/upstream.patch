@@ -1,5 +1,5 @@
 diff --git a/app/build.gradle.kts b/app/build.gradle.kts
-index 6a5a392..2aadfeb 100644
+index 6a5a392..4fe5d4a 100644
 --- a/app/build.gradle.kts
 +++ b/app/build.gradle.kts
 @@ -105,11 +105,11 @@ android {
@@ -12,18 +12,74 @@ index 6a5a392..2aadfeb 100644
          targetSdk = 36
 -        versionCode = 86
 -        versionName = "3.5.7"
-+        versionCode = 6
-+        versionName = "0.4.2"
++        versionCode = 7
++        versionName = "0.4.3"
          testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
          buildConfigField("String", "PUBLISHER_NAME", buildConfigString(publisherName))
          buildConfigField("String", "PUBLISHER_EMAIL", buildConfigString(publisherEmail))
+diff --git a/app/src/debug/AndroidManifest.xml b/app/src/debug/AndroidManifest.xml
+index ae196e9..9e8a98b 100644
+--- a/app/src/debug/AndroidManifest.xml
++++ b/app/src/debug/AndroidManifest.xml
+@@ -1,25 +1,5 @@
+ <?xml version="1.0" encoding="utf-8"?>
+ <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+-    <application>
+-        <!--
+-            Debug only: gives the instrumented tests a real content:// URI to share in, now that
+-            ShareCache refuses file:// URIs. Not exported, and not part of a release build. URI
+-            grants are allowed so a test can place one of its URIs on the clipboard.
+-        -->
+-        <provider
+-            android:name="com.scrcpy.remote.session.TestShareProvider"
+-            android:authorities="com.scrcpy.remote.debug.shares"
+-            android:exported="false"
+-            android:grantUriPermissions="true" />
+-
+-        <!--
+-            Debug only: a target for the precision pad's live test to press and scroll on the
+-            device being mirrored. Not exported, and not part of a release build.
+-        -->
+-        <activity
+-            android:name="com.scrcpy.remote.ui.PadTargetActivity"
+-            android:exported="false" />
+-    </application>
+
+ </manifest>
 diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
-index 21f85d9..3beca50 100644
+index 21f85d9..f1ad78d 100644
 --- a/app/src/main/AndroidManifest.xml
 +++ b/app/src/main/AndroidManifest.xml
-@@ -34,46 +34,34 @@
-       everywhere. The mirror screen keeps the older Back on every version: see MirrorActivity.
-     -->
+@@ -5,19 +5,6 @@
+     <uses-permission android:name="android.permission.INTERNET" />
+     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+     <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE" android:maxSdkVersion="33" />
+-    <!-- Keeps a mirroring session and its remote audio alive while the app is not on screen. -->
+-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
+-    <!--
+-      Android 14 and newer start a connectedDevice service only for an app holding one of a few
+-      permissions; this is the one its documentation lists for a device reached over a network.
+-      Granted at install, with no prompt. Without it the start throws and takes the app down.
+-    -->
+-    <uses-permission android:name="android.permission.CHANGE_NETWORK_STATE" />
+-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+-
+     <!--
+       libadb-android's AAR manifest declares no targetSdkVersion, so the merger implies the
+       legacy permissions an ancient app would have needed. None of them are used: nothing here
+@@ -28,92 +15,29 @@
+     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" tools:node="remove" />
+     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" tools:node="remove" />
+
+-    <!--
+-      Predictive back is asked for activity by activity; Android 13 reads only this application
+-      value, and shows its animations only behind a developer option, so it has the older Back
+-      everywhere. The mirror screen keeps the older Back on every version: see MirrorActivity.
+-    -->
      <application
 -        android:allowBackup="true"
 +        android:allowBackup="false"
@@ -43,12 +99,14 @@ index 21f85d9..3beca50 100644
          <activity
 -            android:name=".ui.MainActivity"
 +            android:name=".ui.MonoRelayActivity"
++            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode|density|smallestScreenSize"
              android:exported="true"
 -            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode|density"
 -            android:enableOnBackInvokedCallback="true"
 -            android:launchMode="singleTop"
 -            android:theme="@style/Theme.ScrcpyRemote"
 -            tools:targetApi="34">
++            android:windowSoftInputMode="adjustResize"
 +            android:theme="@style/Theme.ScrcpyRemote">
              <intent-filter>
                  <action android:name="android.intent.action.MAIN" />
@@ -71,16 +129,49 @@ index 21f85d9..3beca50 100644
 -            </intent-filter>
          </activity>
 
-+        <activity
-+            android:name=".ui.MainActivity"
-+            android:exported="false"
-+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode|density"
-+            android:launchMode="singleTop"
-+            android:theme="@style/Theme.ScrcpyRemote" />
-+
-         <!--
-           The older Back, on purpose: a mouse's Back button also arrives as a Back key, which the
-           screen drops because the button press already went to the device. Predictive back hands
+-        <!--
+-          The older Back, on purpose: a mouse's Back button also arrives as a Back key, which the
+-          screen drops because the button press already went to the device. Predictive back hands
+-          that key to the back handling before the screen sees it, so one click went back on the
+-          device and asked to end the session.
+-        -->
+-        <activity
+-            android:name=".ui.MirrorActivity"
+-            android:exported="false"
+-            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode|density|smallestScreenSize"
+-            android:enableOnBackInvokedCallback="false"
+-            android:launchMode="singleTask"
+-            android:supportsPictureInPicture="true"
+-            android:resizeableActivity="true"
+-            android:theme="@style/Theme.ScrcpyRemote.Mirror"
+-            android:windowSoftInputMode="adjustResize"
+-            tools:targetApi="34" />
+-
+-        <service
+-            android:name=".session.MirrorSessionService"
+-            android:exported="false"
+-            android:foregroundServiceType="mediaPlayback|dataSync|connectedDevice" />
+-
+-        <!--
+-            Hands a captured screenshot or recording to another app.
+-
+-            Not exported and with no permission of its own: the only way in is a URI this app
+-            passed out with a read grant attached, which Android ties to the receiving app and
+-            drops when the task ends. The paths it can serve are narrowed in shared_artefacts.xml
+-            to the two directories those artefacts live in.
+-        -->
+-        <provider
+-            android:name="androidx.core.content.FileProvider"
+-            android:authorities="${applicationId}.artefacts"
+-            android:exported="false"
+-            android:grantUriPermissions="true">
+-            <meta-data
+-                android:name="android.support.FILE_PROVIDER_PATHS"
+-                android:resource="@xml/shared_artefacts" />
+-        </provider>
+     </application>
+-
+ </manifest>
 diff --git a/app/src/main/java/com/scrcpy/remote/scrcpy/ScrcpySession.kt b/app/src/main/java/com/scrcpy/remote/scrcpy/ScrcpySession.kt
 index 4f22c27..4210fd5 100644
 --- a/app/src/main/java/com/scrcpy/remote/scrcpy/ScrcpySession.kt
@@ -175,228 +266,45 @@ index bedc9cd..7ef7a8f 100644
      internal fun liveFrameStats(): VideoFrameStats? = video?.frameStats()
 
      fun reconnect() {
-diff --git a/app/src/main/java/com/scrcpy/remote/ui/ConnectionStatus.kt b/app/src/main/java/com/scrcpy/remote/ui/ConnectionStatus.kt
-index 8762efd..61866fa 100644
---- a/app/src/main/java/com/scrcpy/remote/ui/ConnectionStatus.kt
-+++ b/app/src/main/java/com/scrcpy/remote/ui/ConnectionStatus.kt
-@@ -56,6 +56,7 @@ internal fun ConnectionStatus(
-     onDismiss: () -> Unit,
-     onRetry: () -> Unit = {},
-     showGenericHint: Boolean = true,
-+    simpleAuthorisation: Boolean = false,
-     /** The steps the current or failed attempt got through; null when none was made. */
-     checkup: ConnectionCheckup? = null,
-     /** What a saved device's earlier attempts say about this failure; null when it is not saved. */
-@@ -83,7 +84,8 @@ internal fun ConnectionStatus(
-                         Icon(if (connecting) Icons.Outlined.Phonelink else Icons.Outlined.WifiOff, null,
-                             Modifier.padding(16.dp).size(32.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
-                     }
--                    Text(stringResource(if (connecting) R.string.release_connecting_title else R.string.release_connection_failed),
-+                    Text(if (simpleAuthorisation) "Подтверди отладку"
-+                        else stringResource(if (connecting) R.string.release_connecting_title else R.string.release_connection_failed),
-                         Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge,
-                         textAlign = TextAlign.Center)
-                     if (connecting) CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
-@@ -94,19 +96,19 @@ internal fun ConnectionStatus(
-                         modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
-                     // A message that already says what to do must not be followed by generic
-                     // advice that repeats or contradicts it.
--                    if (connecting || showGenericHint) {
-+                    if (!simpleAuthorisation && (connecting || showGenericHint)) {
-                         Text(stringResource(if (connecting) R.string.release_connecting_help else R.string.release_connection_check),
-                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                             textAlign = TextAlign.Center)
-                     }
--                    if (checkup != null) ConnectionCheckupSteps(checkup)
-+                    if (checkup != null && !simpleAuthorisation) ConnectionCheckupSteps(checkup)
-                     // Only under a failure: while connecting there is nothing yet for it to describe.
-                     if (!connecting && history != null && history.worthShowing) FailureHistoryNote(history)
-                 }
-                 FlowRow(Modifier.fillMaxWidth(),
-                     horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {
-                     if (!connecting) Button(onClick = onRetry, modifier = Modifier.heightIn(min = 48.dp)) {
--                        Text(stringResource(R.string.reconnect))
-+                        Text(if (simpleAuthorisation) "Повторить" else stringResource(R.string.reconnect))
-                     }
-                     if (!connecting && revertLabel != null) {
-                         OutlinedButton(onClick = onRevert, modifier = Modifier.heightIn(min = 48.dp)) {
-@@ -119,7 +121,7 @@ internal fun ConnectionStatus(
-                         }
-                     }
-                     TextButton(onClick = onDismiss, modifier = Modifier.heightIn(min = 48.dp)) {
--                        Text(stringResource(if (connecting) R.string.cancel else R.string.back_to_devices))
-+                        Text(if (simpleAuthorisation) "Назад" else stringResource(if (connecting) R.string.cancel else R.string.back_to_devices))
-                     }
-                 }
-             }
-diff --git a/app/src/main/java/com/scrcpy/remote/ui/MirrorActivity.kt b/app/src/main/java/com/scrcpy/remote/ui/MirrorActivity.kt
-index b07e364..11494ae 100644
---- a/app/src/main/java/com/scrcpy/remote/ui/MirrorActivity.kt
-+++ b/app/src/main/java/com/scrcpy/remote/ui/MirrorActivity.kt
-@@ -36,6 +36,7 @@ import kotlinx.coroutines.flow.combine
- import kotlinx.coroutines.Dispatchers
- import kotlinx.coroutines.Job
- import kotlinx.coroutines.delay
-+import kotlinx.coroutines.isActive
- import kotlinx.coroutines.launch
- import kotlinx.coroutines.withContext
- import androidx.compose.foundation.background
-@@ -103,6 +104,8 @@ import com.scrcpy.remote.data.effectiveSettings
- import com.scrcpy.remote.scrcpy.ControlMessage
- import com.scrcpy.remote.ui.screenshot.ArtefactSharing
- import com.scrcpy.remote.session.ApkInstall
-+import com.scrcpy.remote.session.CheckupStage
-+import com.scrcpy.remote.session.StageStatus
- import com.scrcpy.remote.session.DeviceAppPages
- import com.scrcpy.remote.session.MirrorSessionService
- import com.scrcpy.remote.session.MirrorUiState
-@@ -113,6 +116,7 @@ import com.scrcpy.remote.session.RecordingSound
- import com.scrcpy.remote.session.SessionOverrides
- import com.scrcpy.remote.session.SessionDisplay
- import com.scrcpy.remote.session.StreamChoice
-+import com.scrcpy.remote.session.VideoFrameStats
- import com.scrcpy.remote.session.SessionHold
- import com.scrcpy.remote.session.requiresReconnectFrom
-
-@@ -500,7 +504,41 @@ class MirrorActivity : ComponentActivity() {
-         // whatever this device would otherwise use, and only for this session: nothing here is
-         // written back, so the saved profile is untouched when the session ends.
-         val linkRequest = LinkRequest.from(intent)
--        val settingsFor = { base: MirrorSettings -> linkRequest.applyTo(base) }
-+        val presets = MonoRelayPreset.read(this)
-+        val selection = getSharedPreferences("mono_relay", Context.MODE_PRIVATE).getString("preset", AUTO_QUALITY)
-+        val manualPreset = presets.firstOrNull { it.id == selection }
-+        val adaptive = AdaptiveQuality()
-+        var activePreset by mutableStateOf(manualPreset ?: presets[adaptive.index])
-+        val settingsFor = { base: MirrorSettings ->
-+            activePreset.applyTo(linkRequest.applyTo(base.copy(autoReconnect = true)))
-+        }
-+        if (manualPreset == null) {
-+            lifecycleScope.launch {
-+                repeatOnLifecycle(Lifecycle.State.RESUMED) {
-+                    adaptive.beginStream()
-+                    var previous: VideoFrameStats? = null
-+                    var previousSession: Long? = null
-+                    while (isActive) {
-+                        delay(1000)
-+                        val connected = viewModel.state.value as? MirrorUiState.Connected
-+                        val report = if (connected != null && hasWindowFocus() && canUseSessionTools() &&
-+                            !viewModel.recording.value) viewModel.liveFrameStats() else null
-+                        val last = previous
-+                        if (report == null || previousSession != connected?.sessionGeneration) {
-+                            adaptive.beginStream()
-+                        } else if (last != null && adaptive.sample(
-+                                report.surfaceFrames - last.surfaceFrames,
-+                                report.skippedFrames - last.skippedFrames,
-+                                activePreset.fps, presets.lastIndex)) {
-+                            activePreset = presets[adaptive.index]
-+                            viewModel.reconnect()
-+                        }
-+                        previous = report
-+                        previousSession = connected?.sessionGeneration
-+                    }
-+                }
-+            }
-+        }
-         // A recreated recording offer must not revive a session the user explicitly ended.
-         if (!exitAfterRecording) {
-             viewModel.connect(host, port, settingsFor(initialSettings), allowPortDiscovery = savedDeviceId != null,
-@@ -582,6 +620,7 @@ class MirrorActivity : ComponentActivity() {
-                         savedDeviceId = savedDeviceId,
-                         screenshots = screenshots,
-                         linkRequest = linkRequest,
-+                        qualityPreset = activePreset,
-                         pipMode = pipMode,
-                         hideSessionTools = hideSessionTools,
-                         pipSupported = supportsCameraPip,
-@@ -850,6 +889,7 @@ private fun MirrorScreen(
-     savedDeviceId: String?,
-     screenshots: ScreenshotViewModel,
-     linkRequest: LinkRequest,
-+    qualityPreset: MonoRelayPreset,
-     pipMode: Boolean,
-     hideSessionTools: Boolean,
-     pipSupported: Boolean,
-@@ -990,7 +1030,7 @@ private fun MirrorScreen(
-         // permanently unapplied: the banner never cleared, and applying it reconnected with the
-         // same override and the same mismatch.
-         activeSettings?.let {
--            sessionOverrides.applyTo(linkRequest.applyTo(configured)).requiresReconnectFrom(it)
-+            sessionOverrides.applyTo(qualityPreset.applyTo(linkRequest.applyTo(configured))).requiresReconnectFrom(it)
-         } == true
-     val snackbar = remember { SnackbarHostState() }
-     // The question is about this session's settings. Once nothing is waiting — the session
-@@ -1090,18 +1130,29 @@ private fun MirrorScreen(
-             .testTag("mirror-content"),
-         contentAlignment = Alignment.Center,
-     ) {
-+        val authorising = checkup?.steps?.any { it.stage == CheckupStage.AUTHORIZE &&
-+            it.status == StageStatus.RUNNING } == true
-+        val authorisationFailed = checkup?.failedStage == CheckupStage.AUTHORIZE
-+        val allowDebugging = "Надень Quest и нажми Allow debugging в очках."
-         when (val current = state) {
-             is MirrorUiState.Connecting -> if (hideSessionTools) {
-                 CameraPipStatus(R.string.camera_pip_connecting)
-             } else {
--                ConnectionStatus(current.status, connecting = true, onDismiss = onDisconnect, checkup = checkup)
-+                ConnectionStatus(
-+                    if (authorising) allowDebugging else current.status,
-+                    connecting = true,
-+                    onDismiss = onDisconnect,
-+                    checkup = checkup,
-+                    simpleAuthorisation = authorising,
-+                )
-             }
-
-             is MirrorUiState.Failed -> if (hideSessionTools) {
-                 CameraPipStatus(R.string.camera_pip_failed)
-             } else ConnectionStatus(
--                message = current.message,
-+                message = if (authorisationFailed) "$allowDebugging Затем нажми «Повторить»." else current.message,
-                 connecting = false,
-+                simpleAuthorisation = authorisationFailed,
-                 onRetry = viewModel::reconnect,
-                 onDismiss = onDisconnect,
-                 showGenericHint = !current.guided,
 diff --git a/app/src/main/java/com/scrcpy/remote/ui/MonoRelayActivity.kt b/app/src/main/java/com/scrcpy/remote/ui/MonoRelayActivity.kt
 new file mode 100644
-index 0000000..f95dee9
+index 0000000..4756bbd
 --- /dev/null
 +++ b/app/src/main/java/com/scrcpy/remote/ui/MonoRelayActivity.kt
-@@ -0,0 +1,286 @@
+@@ -0,0 +1,406 @@
 +package com.scrcpy.remote.ui
 +
 +import android.content.Context
-+import android.content.Intent
 +import android.net.nsd.NsdManager
 +import android.net.nsd.NsdServiceInfo
 +import android.os.Bundle
++import android.view.SurfaceHolder
++import android.view.SurfaceView
++import android.view.WindowManager
 +import androidx.activity.ComponentActivity
++import androidx.activity.compose.BackHandler
 +import androidx.activity.compose.setContent
++import androidx.activity.viewModels
++import androidx.compose.foundation.background
 +import androidx.compose.foundation.isSystemInDarkTheme
 +import androidx.compose.foundation.rememberScrollState
-+import androidx.compose.foundation.text.KeyboardActions
-+import androidx.compose.foundation.text.KeyboardOptions
 +import androidx.compose.foundation.verticalScroll
 +import androidx.compose.foundation.layout.Arrangement
-+import androidx.compose.foundation.layout.Column
 +import androidx.compose.foundation.layout.BoxWithConstraints
++import androidx.compose.foundation.layout.Column
 +import androidx.compose.foundation.layout.Row
++import androidx.compose.foundation.layout.aspectRatio
 +import androidx.compose.foundation.layout.fillMaxSize
 +import androidx.compose.foundation.layout.fillMaxWidth
 +import androidx.compose.foundation.layout.padding
 +import androidx.compose.foundation.layout.safeDrawingPadding
 +import androidx.compose.foundation.layout.size
-+import androidx.compose.material.icons.Icons
-+import androidx.compose.material.icons.outlined.Tv
-+import androidx.compose.material.icons.outlined.Wifi
-+import androidx.compose.material3.AlertDialog
++import androidx.compose.foundation.layout.width
++import androidx.compose.foundation.text.KeyboardActions
++import androidx.compose.foundation.text.KeyboardOptions
 +import androidx.compose.material3.Button
 +import androidx.compose.material3.CircularProgressIndicator
-+import androidx.compose.material3.HorizontalDivider
-+import androidx.compose.material3.Icon
 +import androidx.compose.material3.MaterialTheme
-+import androidx.compose.material3.OutlinedButton
 +import androidx.compose.material3.OutlinedTextField
 +import androidx.compose.material3.SegmentedButton
 +import androidx.compose.material3.SegmentedButtonDefaults
@@ -407,24 +315,42 @@ index 0000000..f95dee9
 +import androidx.compose.material3.darkColorScheme
 +import androidx.compose.material3.lightColorScheme
 +import androidx.compose.runtime.Composable
++import androidx.compose.runtime.LaunchedEffect
++import androidx.compose.runtime.collectAsState
 +import androidx.compose.runtime.getValue
 +import androidx.compose.runtime.mutableStateOf
 +import androidx.compose.runtime.setValue
 +import androidx.compose.ui.Alignment
 +import androidx.compose.ui.Modifier
 +import androidx.compose.ui.graphics.Color
-+import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.platform.LocalFocusManager
++import androidx.compose.ui.semantics.LiveRegionMode
++import androidx.compose.ui.semantics.liveRegion
++import androidx.compose.ui.semantics.semantics
 +import androidx.compose.ui.text.input.ImeAction
 +import androidx.compose.ui.text.input.KeyboardType
 +import androidx.compose.ui.unit.dp
++import androidx.compose.ui.viewinterop.AndroidView
++import androidx.lifecycle.Lifecycle
 +import androidx.lifecycle.lifecycleScope
++import androidx.lifecycle.repeatOnLifecycle
++import com.scrcpy.remote.data.MirrorSettings
++import com.scrcpy.remote.scrcpy.AudioSource
++import com.scrcpy.remote.session.CheckupStage
++import com.scrcpy.remote.session.ConnectionCheckup
++import com.scrcpy.remote.session.MirrorUiState
++import com.scrcpy.remote.session.MirrorViewModel
++import com.scrcpy.remote.session.StageStatus
++import com.scrcpy.remote.session.VideoFrameStats
 +import java.net.Inet4Address
 +import java.util.concurrent.atomic.AtomicBoolean
 +import kotlin.coroutines.resume
 +import kotlinx.coroutines.Job
 +import kotlinx.coroutines.channels.awaitClose
++import kotlinx.coroutines.delay
 +import kotlinx.coroutines.flow.callbackFlow
 +import kotlinx.coroutines.flow.firstOrNull
++import kotlinx.coroutines.isActive
 +import kotlinx.coroutines.launch
 +import kotlinx.coroutines.suspendCancellableCoroutine
 +import kotlinx.coroutines.withTimeoutOrNull
@@ -432,19 +358,31 @@ index 0000000..f95dee9
 +class MonoRelayActivity : ComponentActivity() {
 +    private data class Address(val ip: String, val port: Int)
 +
++    private val viewModel: MirrorViewModel by viewModels()
 +    private val preferences by lazy { getSharedPreferences("mono_relay", Context.MODE_PRIVATE) }
 +    private val presets by lazy { MonoRelayPreset.read(this) }
++    private val playbackSettings = MirrorSettings(
++        audioSource = AudioSource.PLAYBACK,
++        audioDup = true,
++        autoReconnect = true,
++        captureEdgeGestures = false,
++        clipboardAutosync = false,
++    )
++    private var adaptive = AdaptiveQuality()
 +    private var selected by mutableStateOf(AUTO_QUALITY)
 +    private var address by mutableStateOf("")
 +    private var showAddress by mutableStateOf(false)
 +    private var search: Job? = null
 +    private var searching by mutableStateOf(false)
-+    private var failure by mutableStateOf<String?>(null)
++    private var searchFailed by mutableStateOf(false)
++    private var resumeOnOpen = true
++    private val preset get() = presets.firstOrNull { it.id == selected } ?: presets[adaptive.index]
 +
 +    override fun onCreate(savedInstanceState: Bundle?) {
 +        super.onCreate(savedInstanceState)
 +        selected = preferences.getString("preset", AUTO_QUALITY) ?: AUTO_QUALITY
 +        address = preferences.getString("address", "") ?: ""
++        resumeOnOpen = savedInstanceState?.getBoolean("resume_stream") ?: true
 +        setContent {
 +            val palette = if (isSystemInDarkTheme()) darkColorScheme(primary = Color(0xFF8DBBFF))
 +                else lightColorScheme(primary = Color(0xFF0969DA))
@@ -452,132 +390,222 @@ index 0000000..f95dee9
 +                Surface(Modifier.fillMaxSize()) { Home() }
 +            }
 +        }
-+        if (savedInstanceState == null) connect()
++        watchQuality()
++    }
++
++    override fun onSaveInstanceState(outState: Bundle) {
++        outState.putBoolean("resume_stream", resumeOnOpen)
++        super.onSaveInstanceState(outState)
++    }
++
++    override fun onStart() {
++        super.onStart()
++        viewModel.onVisibilityChanged(true)
++        if (resumeOnOpen) connect()
++    }
++
++    override fun onStop() {
++        search?.cancel()
++        viewModel.onVisibilityChanged(false)
++        viewModel.disconnect()
++        super.onStop()
 +    }
 +
 +    @Composable
 +    private fun Home() {
++        val state by viewModel.state.collectAsState()
++        val checkup by viewModel.checkup.collectAsState()
++        val connected = state as? MirrorUiState.Connected
++        val connecting = state is MirrorUiState.Connecting
++        val active = searching || connecting || connected != null
++        val failed = searchFailed || state is MirrorUiState.Failed
++        BackHandler(enabled = active || showAddress) {
++            if (showAddress) showAddress = false else stopStream()
++        }
++        LaunchedEffect(active) {
++            val flag = WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
++            if (active) window.addFlags(flag) else window.clearFlags(flag)
++        }
++
++        val scroll = if (!active && showAddress) Modifier.verticalScroll(rememberScrollState()) else Modifier
 +        Column(
-+            Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(24.dp),
-+            verticalArrangement = Arrangement.spacedBy(18.dp),
++            Modifier.fillMaxSize().safeDrawingPadding().then(scroll).padding(16.dp),
++            verticalArrangement = Arrangement.spacedBy(10.dp),
 +        ) {
-+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-+                Icon(Icons.Outlined.Tv, null, Modifier.size(28.dp), tint = MaterialTheme.colorScheme.primary)
-+                Text("Трансляция Quest", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-+            }
-+            HorizontalDivider()
-+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-+                if (searching) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-+                else Icon(Icons.Outlined.Wifi, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-+                    val error = failure
-+                    Text(when {
-+                        searching -> "Ищем Quest…"
-+                        error != null -> "Не удалось подключиться"
-+                        else -> "Готово к подключению"
-+                    }, style = MaterialTheme.typography.titleSmall)
-+                    Text(when {
-+                        searching -> "Quest должен быть включён."
-+                        error != null -> error
-+                        else -> "Подключи телефон и Quest к одной сети."
-+                    }, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
++            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
++                verticalAlignment = Alignment.CenterVertically) {
++                Text("MonoRelay", style = MaterialTheme.typography.titleLarge)
++                if (active) {
++                    TextButton(onClick = ::stopStream) { Text("Стоп") }
++                } else {
++                    Button(onClick = { connect() }) { Text(if (failed) "Повторить" else "Подключить") }
 +                }
 +            }
-+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-+                val choices = listOf(AUTO_QUALITY to "Авто") + presets.map { it.id to it.label }
-+                BoxWithConstraints(Modifier.fillMaxWidth()) {
-+                    val rows = if (maxWidth < 306.dp) choices.chunked(2) else listOf(choices)
-+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-+                        rows.forEach { QualityRow(it) }
++
++            Surface(
++                modifier = Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite },
++                shape = MaterialTheme.shapes.small,
++                color = MaterialTheme.colorScheme.surfaceVariant,
++            ) {
++                Row(Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
++                    horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
++                    if (searching || connecting) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
++                    Text(statusText(state, checkup), style = MaterialTheme.typography.bodyMedium,
++                        color = MaterialTheme.colorScheme.onSurfaceVariant)
++                }
++            }
++
++            if (connecting || connected != null) {
++                // Keep the decoder's target ready while authenticating, then give the video the
++                // available space once the server has reported its frame dimensions.
++                val videoSize = if (connected != null) Modifier.weight(1f).fillMaxWidth() else Modifier.size(1.dp)
++                Video(connected, videoSize)
++            }
++            Quality(available = !connecting)
++            if (!active) {
++                if (showAddress) ManualAddress()
++                else if (failed) TextButton(onClick = { showAddress = true }) { Text("Ввести IP") }
++            }
++        }
++    }
++
++    private fun statusText(state: MirrorUiState, checkup: ConnectionCheckup?): String = when {
++        checkup?.failedStage == CheckupStage.AUTHORIZE || checkup?.steps?.any {
++            it.stage == CheckupStage.AUTHORIZE && it.status == StageStatus.RUNNING
++        } == true -> "Подтверди в очках"
++        searching -> "Ищем Quest…"
++        state is MirrorUiState.Connected && checkup?.steps?.any {
++            it.stage == CheckupStage.MEDIA && it.status == StageStatus.PASSED
++        } == true -> "Трансляция идёт"
++        state is MirrorUiState.Connected || state is MirrorUiState.Connecting -> "Подключаемся к Quest…"
++        searchFailed -> "Quest не найден. Проверь Wi-Fi."
++        state is MirrorUiState.Failed -> "Не удалось подключиться к Quest"
++        else -> "Готово к подключению"
++    }
++
++    @Composable
++    private fun Video(state: MirrorUiState.Connected?, modifier: Modifier) {
++        BoxWithConstraints(modifier.background(Color.Black), contentAlignment = Alignment.Center) {
++            val ratio = if (state != null && state.videoWidth > 0 && state.videoHeight > 0) {
++                state.videoWidth.toFloat() / state.videoHeight
++            } else 16f / 9f
++            val videoWidth = minOf(maxWidth, maxHeight * ratio)
++            AndroidView(
++                modifier = Modifier.width(videoWidth).aspectRatio(ratio),
++                factory = { context ->
++                    SurfaceView(context).apply {
++                        holder.addCallback(object : SurfaceHolder.Callback {
++                            override fun surfaceCreated(holder: SurfaceHolder) = viewModel.setSurface(holder.surface)
++                            override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) = Unit
++                            override fun surfaceDestroyed(holder: SurfaceHolder) = viewModel.releaseSurface()
++                        })
++                    }
++                },
++            )
++        }
++    }
++
++    @Composable
++    private fun Quality(available: Boolean) {
++        val choices = listOf(AUTO_QUALITY to "Авто") + presets.map { it.id to it.label }
++        BoxWithConstraints(Modifier.fillMaxWidth()) {
++            val rows = if (maxWidth < 306.dp) choices.chunked(2) else listOf(choices)
++            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
++                rows.forEach { row ->
++                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
++                        row.forEachIndexed { index, (id, label) ->
++                            SegmentedButton(
++                                selected = selected == id,
++                                onClick = { chooseQuality(id) },
++                                enabled = available,
++                                shape = SegmentedButtonDefaults.itemShape(index = index, count = row.size),
++                                icon = {},
++                                label = { Text(label, maxLines = 1) },
++                            )
++                        }
 +                    }
 +                }
-+                Text(presets.firstOrNull { it.id == selected }?.caption ?: "Подбирает качество",
-+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-+            }
-+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-+                OutlinedButton(onClick = { showAddress = true }, enabled = !searching) { Text("Ввести IP…") }
-+                Button(onClick = { if (searching) cancelSearch() else connect() }) {
-+                    Text(if (searching) "Отменить" else "Подключить")
-+                }
-+            }
-+        }
-+        if (showAddress) AddressDialog()
-+    }
-+
-+    @Composable
-+    private fun QualityRow(choices: List<Pair<String, String>>) {
-+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-+            choices.forEachIndexed { index, (id, label) ->
-+                SegmentedButton(
-+                    selected = selected == id,
-+                    onClick = {
-+                        selected = id
-+                        preferences.edit().putString("preset", id).apply()
-+                    },
-+                    shape = SegmentedButtonDefaults.itemShape(index = index, count = choices.size),
-+                    icon = {},
-+                    label = { Text(label, maxLines = 1) },
-+                )
 +            }
 +        }
 +    }
 +
 +    @Composable
-+    private fun AddressDialog() {
++    private fun ManualAddress() {
 +        val endpoint = parse(address)
-+        AlertDialog(
-+            onDismissRequest = { showAddress = false },
-+            title = { Text("Подключиться по адресу") },
-+            text = {
-+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-+                    Text("Возьми IP из настроек Wi-Fi в очках. Добавь порт, если он отличается от 5555.")
-+                    OutlinedTextField(address, { address = it }, label = { Text("IP Quest") },
-+                        placeholder = { Text("192.168.1.42:5555") }, singleLine = true,
-+                        isError = address.isNotBlank() && endpoint == null,
-+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go),
-+                        keyboardActions = KeyboardActions(onGo = { endpoint?.let { connectManual(it) } }),
-+                        modifier = Modifier.fillMaxWidth())
-+                    TextButton(onClick = {
-+                        showAddress = false
-+                        startActivity(Intent(this@MonoRelayActivity, MainActivity::class.java)
-+                            .putExtra(MainActivity.EXTRA_OPEN_PAIRING, true))
-+                    }) { Text("Шлем показывает код сопряжения") }
-+                }
-+            },
-+            dismissButton = { TextButton(onClick = { showAddress = false }) { Text("Отмена") } },
-+            confirmButton = {
-+                Button(enabled = endpoint != null, onClick = { endpoint?.let { connectManual(it) } }) {
-+                    Text("Подключить")
-+                }
-+            },
-+        )
++        val focus = LocalFocusManager.current
++        fun submit() {
++            if (endpoint != null) {
++                focus.clearFocus()
++                connect(endpoint)
++            }
++        }
++        OutlinedTextField(address, { address = it }, label = { Text("IP Quest") },
++            placeholder = { Text("192.168.1.42") }, singleLine = true,
++            isError = address.isNotBlank() && endpoint == null,
++            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go),
++            keyboardActions = KeyboardActions(onGo = { submit() }), modifier = Modifier.fillMaxWidth())
++        TextButton(enabled = endpoint != null, onClick = { submit() }) { Text("Подключить по IP") }
 +    }
 +
-+    private fun connectManual(endpoint: Address) {
-+        showAddress = false
-+        connect(endpoint)
++    private fun chooseQuality(id: String) {
++        if (selected == id || viewModel.state.value is MirrorUiState.Connecting) return
++        selected = id
++        preferences.edit().putString("preset", id).apply()
++        adaptive = AdaptiveQuality()
++        if (viewModel.state.value is MirrorUiState.Connected) viewModel.reconnect()
 +    }
 +
-+    private fun cancelSearch() {
++    private fun watchQuality() {
++        lifecycleScope.launch {
++            repeatOnLifecycle(Lifecycle.State.RESUMED) {
++                var previous: VideoFrameStats? = null
++                var previousSession: Long? = null
++                while (isActive) {
++                    delay(1000)
++                    val session = viewModel.state.value as? MirrorUiState.Connected
++                    val report = if (selected == AUTO_QUALITY && session != null && hasWindowFocus())
++                        viewModel.liveFrameStats() else null
++                    val last = previous
++                    if (report == null || previousSession != session?.sessionGeneration) {
++                        adaptive.beginStream()
++                    } else if (last != null && adaptive.sample(report.surfaceFrames - last.surfaceFrames,
++                            report.skippedFrames - last.skippedFrames, preset.fps, presets.lastIndex)) {
++                        viewModel.reconnect()
++                    }
++                    previous = report
++                    previousSession = session?.sessionGeneration
++                }
++            }
++        }
++    }
++
++    private fun stopStream() {
++        resumeOnOpen = false
 +        search?.cancel()
++        viewModel.disconnect()
 +    }
 +
 +    private fun connect(manual: Address? = null) {
-+        if (searching) return
++        if (searching || viewModel.state.value is MirrorUiState.Connecting) return
++        resumeOnOpen = true
++        showAddress = false
++        searchFailed = false
 +        searching = true
-+        failure = null
++        adaptive = AdaptiveQuality()
++        viewModel.disconnect()
 +        search = lifecycleScope.launch {
 +            try {
 +                val serial = preferences.getString("serial", null)
 +                val endpoint = manual ?: findService(serial)?.let { resolve(it) }
-+                    ?: preferences.getString("address", null)?.let { parse(it) }
++                    ?: parse(address)
 +                if (endpoint == null) {
-+                    failure = "Проверь Wi-Fi и отладку на шлеме. Если Quest не находится, введи IP вручную."
++                    searchFailed = true
 +                    return@launch
 +                }
 +                address = "${endpoint.ip}:${endpoint.port}"
-+                val options = "audio=playback&audioDup=true"
-+                startActivity(MirrorActivity.newIntent(this@MonoRelayActivity, endpoint.ip, endpoint.port, linkOptions = options))
++                viewModel.connect(endpoint.ip, endpoint.port, preset.applyTo(playbackSettings)) {
++                    preset.applyTo(playbackSettings)
++                }
 +            } finally {
 +                searching = false
 +                search = null
@@ -652,10 +680,10 @@ index 0000000..f95dee9
 +}
 diff --git a/app/src/main/java/com/scrcpy/remote/ui/MonoRelayQuality.kt b/app/src/main/java/com/scrcpy/remote/ui/MonoRelayQuality.kt
 new file mode 100644
-index 0000000..903d04a
+index 0000000..eed5061
 --- /dev/null
 +++ b/app/src/main/java/com/scrcpy/remote/ui/MonoRelayQuality.kt
-@@ -0,0 +1,66 @@
+@@ -0,0 +1,65 @@
 +package com.scrcpy.remote.ui
 +
 +import android.content.Context
@@ -671,7 +699,6 @@ index 0000000..903d04a
 +    val fps: Int,
 +    val bitrate: Int,
 +    val audioBufferMs: Int,
-+    val caption: String,
 +) {
 +
 +    fun applyTo(settings: MirrorSettings): MirrorSettings = settings.copy(
@@ -687,7 +714,7 @@ index 0000000..903d04a
 +            return (0 until data.length()).map { index ->
 +                val item = data.getJSONObject(index)
 +                MonoRelayPreset(item.getString("id"), item.getString("title"), item.getInt("maxSize"),
-+                    item.getInt("fps"), item.getInt("bitRateMbps"), item.getInt("audioBufferMs"), item.getString("caption"))
++                    item.getInt("fps"), item.getInt("bitRateMbps"), item.getInt("audioBufferMs"))
 +            }
 +        }
 +    }
