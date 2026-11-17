@@ -1,37 +1,37 @@
 # MonoRelay
 
-MonoRelay показывает изображение с одного глаза Meta Quest в обычном окне. Стрим идёт по локальному Wi-Fi. Приложение запоминает шлем и пробует подключиться при запуске.
+MonoRelay shows a single-eye view from a Meta Quest in a flat window over local Wi-Fi. It remembers the headset and tries to connect when you open the app.
 
-## Установка
+## Install
 
-Скачай сборку в [Releases](https://github.com/CHXZAVARKA/MonoRelay/releases/latest).
+Download a build from [Releases](https://github.com/CHXZAVARKA/MonoRelay/releases/latest).
 
-- macOS 14+. Установи `scrcpy` и `adb` по [инструкции](BUILD.md#macos), затем открой `MonoRelay.app`. Готовый ZIP собран для Apple Silicon и подписан локально. Если macOS блокирует запуск, собери приложение из исходников на своём Mac.
-- Windows. Выбери x64 для Intel и AMD или ARM64 для компьютера на ARM. Распакуй весь ZIP и запусти `MonoRelay.exe`.
-- Android 8+. Установи тестовый APK на телефон или планшет. [Как установить и подключить Quest](Android/README.md).
+- macOS 14+. [Install `scrcpy` and `adb`](BUILD.md#macos), then open `MonoRelay.app`. The ZIP is for Apple Silicon and is signed ad hoc. If macOS blocks the downloaded app, build it locally.
+- Windows. Use x64 for Intel and AMD PCs or ARM64 for ARM PCs. Extract the entire ZIP and open `MonoRelay.exe`.
+- Android 8+. Install the preview APK on your phone or tablet. See the [Android guide](Android/README.md).
 
-## Первое подключение
+## Connect a Quest
 
-1. Включи режим разработчика на Quest. В Meta VR Developer Hub открой Device Manager и включи ADB over Wi-Fi. Для первичной настройки может понадобиться USB. [Инструкция Meta](https://developers.meta.com/vr/documentation/native/android/ts-mqdh-basic-usage/).
-2. Подключи Quest и устройство, на котором смотришь стрим, к одной локальной сети.
-3. Открой MonoRelay. Если шлем не нашёлся, введи его IP из настроек Wi-Fi. Добавь порт через двоеточие, если он отличается от 5555. Подтверди запрос отладки в очках.
+1. Enable developer mode on the headset. Open Device Manager in Meta VR Developer Hub and turn on ADB over Wi-Fi. The first setup may require a USB cable. [Meta's guide](https://developers.meta.com/vr/documentation/native/android/ts-mqdh-basic-usage/).
+2. Connect the headset and the receiving device to the same local network.
+3. Open MonoRelay. If it can't find the Quest, enter the IP address from the headset's Wi-Fi settings. Add `:port` if the debugging port differs from 5555. Approve the debugging prompt on the headset.
 
-После перезагрузки Quest может потребоваться снова включить ADB по Wi-Fi. Если оба устройства в гостевой сети, проверь, разрешены ли соединения между ними. Включай беспроводную отладку в доверенной сети.
+You may need to turn ADB over Wi-Fi back on after restarting the Quest. A guest network may block connections between devices. Use wireless debugging on a network you trust.
 
-## Качество
+## Quality
 
-Режим меняется в главном окне. Смена режима кратко переподключает стрим.
+Choose a profile in the main window. Applying a different profile briefly reconnects the stream.
 
-| Режим | Длинная сторона | FPS до | Битрейт видео | Буфер видео на компьютере | Буфер звука |
+| Profile in the app | Max. long edge | Max. FPS | Video bitrate | Desktop video buffer | Audio buffer |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Задержка | 1280 px | 30 | 5 Мбит/с | 0 мс | 50 мс |
-| Баланс | 1600 px | 30 | 8 Мбит/с | 30 мс | 80 мс |
-| Качество | 1920 px | 60 | 16 Мбит/с | 60 мс | 120 мс |
+| Low latency (`Задержка`) | 1280 px | 30 | 5 Mbps | 0 ms | 50 ms |
+| Balanced (`Баланс`) | 1600 px | 30 | 8 Mbps | 30 ms | 80 ms |
+| Quality (`Качество`) | 1920 px | 60 | 16 Mbps | 60 ms | 120 ms |
 
-«Авто» начинает с «Баланса», снижает качество после серии пропусков кадров и может один раз повысить его после 45 секунд стабильного активного видео. Автоподстройка работает, пока окно стрима активно.
+Auto (`Авто`) starts at Balanced. It lowers quality after repeated frame skips and may try a higher setting once after 45 seconds of steady, active video. It adjusts while the player is in the foreground.
 
-Подключение и кадр проверены на Quest 3S. На других шлемах обрезка может отличаться. На Mac полный кадр и звук можно настроить в `MonoRelay → Settings`.
+The connection and one-eye crop were tested on a Quest 3S. The crop may differ on other headsets. On macOS, open `MonoRelay → Settings` to switch to full capture or turn off sound.
 
-[Сборка из исходников](BUILD.md) · [MIT License](LICENSE)
+[Build from source](BUILD.md) · [MIT license](LICENSE)
 
-Проект использует [scrcpy](https://github.com/Genymobile/scrcpy) и [Scrcpy Remote](https://github.com/dhun2666/scrcpy-client-for-android). Стрим остаётся в локальной сети.
+MonoRelay uses [scrcpy](https://github.com/Genymobile/scrcpy) and [Scrcpy Remote](https://github.com/dhun2666/scrcpy-client-for-android). The stream stays on your local network.

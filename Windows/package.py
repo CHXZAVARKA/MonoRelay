@@ -71,12 +71,12 @@ def package(runtime: str, engine: Path, destination: Path) -> None:
                 raise ValueError(f"Runtime is missing {required}")
 
         (app / "LICENSE-MonoRelay.txt").write_bytes((ROOT / "LICENSE").read_bytes())
-        (app / "Сначала прочитай.txt").write_text(
-            "Распакуй архив целиком и запусти MonoRelay.exe.\n"
-            "ПК и Quest должны быть в одной локальной сети.\n"
-            "На Quest нужна включённая беспроводная отладка ADB.\n"
-            "При первом подключении введи IP очков и подтверди запрос отладки в шлеме.\n",
-            encoding="utf-8-sig",
+        (app / "Read first.txt").write_text(
+            "Extract the entire ZIP and open MonoRelay.exe.\n"
+            "Connect your PC and Quest to the same local network.\n"
+            "Enable ADB over Wi-Fi on the Quest.\n"
+            "If the app cannot find the headset, enter its IP address. Approve the debugging prompt on the Quest.\n",
+            encoding="utf-8",
         )
         (app / "THIRD-PARTY.txt").write_text(
             "MonoRelay MIT notice: LICENSE-MonoRelay.txt.\n"

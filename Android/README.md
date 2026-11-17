@@ -1,24 +1,24 @@
-# MonoRelay на Android
+# MonoRelay for Android
 
-Телефон или планшет на Android 8+ принимает стрим с Quest напрямую по локальному Wi-Fi.
+A phone or tablet on Android 8 or later can receive the Quest stream directly over local Wi-Fi.
 
-## Установка APK
+## Install the APK
 
-Скачай `MonoRelay-0.4.0-Android-preview.apk` со страницы [Releases](https://github.com/CHXZAVARKA/MonoRelay/releases/latest). Открой файл на телефоне и подтверди установку из выбранного источника.
+Download `MonoRelay-0.4.0-Android-preview.apk` from [Releases](https://github.com/CHXZAVARKA/MonoRelay/releases/latest). Open the file on your phone and approve installation from the app that opened it.
 
-Для установки с компьютера включи отладку по USB на телефоне, подключи его кабелем и подтверди запрос. Возьми серийный номер телефона из `adb devices`.
+To install from a computer, enable USB debugging on the phone, plug it in, and approve the debugging prompt. Use the phone's serial from `adb devices`.
 
 ```sh
 adb devices
 adb -s SERIAL install -r MonoRelay-0.4.0-Android-preview.apk
 ```
 
-`SERIAL` указывает на телефон, на котором будет показан стрим. [Документация ADB](https://developer.android.com/tools/adb).
+[ADB documentation](https://developer.android.com/tools/adb)
 
-## Подключение к Quest
+## Connect a Quest
 
-1. Включи ADB по Wi-Fi на Quest по [гайду Meta](https://developers.meta.com/vr/documentation/native/android/ts-mqdh-basic-usage/). Подключи телефон и Quest к одной сети.
-2. В MonoRelay введи IP очков, выбери качество и нажми «Подключить». Если порт отладки отличается от 5555, укажи его в поле IP через двоеточие.
-3. Подтверди запрос отладки в шлеме. При следующем запуске приложение попробует найти сохранённый Quest.
+1. Turn on ADB over Wi-Fi on the headset. Connect the phone and Quest to the same local network. [Meta's guide](https://developers.meta.com/vr/documentation/native/android/ts-mqdh-basic-usage/).
+2. Enter the Quest's IP address in MonoRelay, choose a quality profile, and tap Connect (`Подключить`). Add `:port` to the IP address if the debugging port differs from 5555.
+3. Approve the debugging prompt on the Quest. The app tries to find the same headset the next time you open it.
 
-Чтобы сменить режим вручную, вернись в главное окно и подключись снова.
+To change the profile manually, return to the main screen and connect again.
