@@ -13,6 +13,7 @@ trap 'rm -rf -- "$stage"' EXIT HUP INT TERM
 bundle="$stage/MonoRelay.app"
 mkdir -p "$bundle/Contents/MacOS" "$bundle/Contents/Resources" "$stage/MonoRelay.iconset"
 cp "$root/Resources/Info.plist" "$bundle/Contents/Info.plist"
+cp "$root/Resources/stream-presets.json" "$bundle/Contents/Resources/"
 xcrun swiftc -swift-version 5 -parse-as-library -O -target "$(uname -m)-apple-macos14.0" \
     "$root"/Sources/*.swift -o "$bundle/Contents/MacOS/MonoRelay"
 xcrun swift "$root/Tools/MakeIcon.swift" "$stage/MonoRelay.iconset"

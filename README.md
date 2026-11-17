@@ -1,8 +1,14 @@
 # MonoRelay
 
-MonoRelay is a small native macOS launcher for mirroring Meta Quest to your Mac with scrcpy. Open it to start finding your headset immediately. It remembers the headset and working addresses locally, and retries once if a running stream loses the connection.
+MonoRelay is a small launcher for mirroring one trusted Meta Quest over local Wi‑Fi. Open it to start finding your headset immediately. Desktop builds remember the headset and working addresses locally and retry once after a dropped stream.
 
-## Run on your Mac
+## Builds
+
+- **macOS 14+** uses the native SwiftUI app and your installed scrcpy and ADB.
+- **Windows** has portable x64 and ARM64 builds with the official scrcpy and ADB included. Extract the full ZIP and open `MonoRelay.exe`. To build, install the .NET 10 SDK and run `python Windows/package.py win-x64 path/to/official-scrcpy.zip MonoRelay-Windows.zip` (or `win-arm64`). The script checks the official [scrcpy release archive](https://github.com/Genymobile/scrcpy/releases/tag/v5.0.1) before packaging it.
+- **Android 8+** is a [direct receiver preview](Android/README.md) built on Scrcpy Remote. Enter the headset address once and authorize this phone or tablet on the Quest.
+
+## Build on your Mac
 
 Requirements: macOS 14 or later, Xcode Command Line Tools, Android Platform Tools, and scrcpy 5.0.1 or later.
 
@@ -21,7 +27,15 @@ Mac and Quest must be able to reach each other. Guest networks can prevent this.
 
 ## Display and sound
 
-The defaults are 30 fps, 8 Mbps, software decoding, and duplicated playback audio. MonoRelay includes a one-eye framing preset for a Quest 3S with the 10992×8000 display override. Other sizes use the left half of the capture. Framing can vary with Horizon OS, apps, and capture sizes. For a full capture, turn off the one-eye option in **MonoRelay → Settings**. You can also turn off Mac audio there. Settings take effect at the next connection.
+The three profiles are shared across platforms. Limits apply to the long edge of the captured frame.
+
+| Profile | Maximum size | Maximum FPS | Video bitrate |
+| --- | ---: | ---: | ---: |
+| Задержка | 1280 px | 30 | 5 Mbps |
+| Баланс (default) | 1600 px | 30 | 8 Mbps |
+| Качество | 1920 px | 60 | 16 Mbps |
+
+Selecting a new profile on desktop reconnects the video stream. Actual frame rate and quality depend on the headset output and connection. Both desktop builds use software decoding and duplicate playback audio. MonoRelay includes a one-eye framing preset for a Quest 3S with the 10992×8000 display override. Other sizes use the left half of the capture. Framing can vary with Horizon OS, apps, and capture sizes. On Mac, turn off the one-eye option in **MonoRelay → Settings** for a full capture. You can also turn off Mac audio there. Those settings take effect at the next connection.
 
 ## Distribution
 
@@ -29,4 +43,4 @@ MonoRelay is focused on launching a single trusted headset. For Meta's built-in 
 
 `./build.sh /absolute/path/MonoRelay.app` builds for the current Mac architecture and signs the local bundle ad hoc. You can supply a Developer ID identity via `MONORELAY_SIGN_IDENTITY`. Public macOS binaries can be Developer ID signed and notarized with your own Apple account.
 
-MonoRelay uses the system-installed `adb` and [Genymobile scrcpy](https://github.com/Genymobile/scrcpy). They are maintained independently and aren't included in the bundle. The app does not use an online account or send telemetry. MonoRelay's own code is [MIT licensed](LICENSE). This is an independent project, unaffiliated with Meta, Apple, or Genymobile.
+MonoRelay uses [Genymobile scrcpy](https://github.com/Genymobile/scrcpy) and Android Debug Bridge. The macOS bundle uses system-installed tools. Windows packages include official binaries and their notices; the Android build retains its upstream attribution. The app does not use an online account or send telemetry. MonoRelay's own code is [MIT licensed](LICENSE). This is an independent project, unaffiliated with Meta, Apple, or Genymobile.

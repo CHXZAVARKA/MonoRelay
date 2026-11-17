@@ -1,6 +1,23 @@
 import AppKit
 import SwiftUI
 
+struct StreamPreset: Decodable, Identifiable {
+    let id: String
+    let title: String
+    let description: String
+    let maxSize: Int
+    let fps: Int
+    let bitRateMbps: Int
+
+    static let catalog: [StreamPreset] = {
+        guard let url = Bundle.main.url(forResource: "stream-presets", withExtension: "json"),
+              let data = try? Data(contentsOf: url),
+              let presets = try? JSONDecoder().decode([StreamPreset].self, from: data)
+        else { return [] }
+        return presets
+    }()
+}
+
 @MainActor
 final class Session: ObservableObject {
     enum Phase: Equatable {
@@ -10,14 +27,29 @@ final class Session: ObservableObject {
     @Published private(set) var phase = Phase.idle
     @Published var showAddress = false
     @Published var address = ""
+    @Published private(set) var selectedPreset: String
     let preferences: UserDefaults
     private var launched = false
     private var job: Task<Void, Never>?
     private var player: Process?
     private var runID = UUID()
+    private var restartForPreset = false
 
     init(preferences: UserDefaults = .standard) {
         self.preferences = preferences
+        let saved = preferences.string(forKey: "streamPreset")
+        selectedPreset = StreamPreset.catalog.first { $0.id == saved }?.id ?? "balance"
+    }
+
+    func selectPreset(_ id: String) {
+        guard id != selectedPreset, StreamPreset.catalog.contains(where: { $0.id == id }) else { return }
+        selectedPreset = id
+        preferences.set(id, forKey: "streamPreset")
+        if !restartForPreset, let player {
+            restartForPreset = true
+            phase = .starting
+            if player.isRunning { player.terminate() }
+        }
     }
 
     func startAtLaunch() {
@@ -48,6 +80,7 @@ final class Session: ObservableObject {
     }
 
     func stop() {
+        restartForPreset = false
         runID = UUID()
         job?.cancel()
         job = nil
@@ -69,9 +102,13 @@ final class Session: ObservableObject {
     }
 
     private func launchPlayer(_ headset: Headset, tools: Toolchain, id: UUID, canReconnect: Bool) {
+        guard let preset = StreamPreset.catalog.first(where: { $0.id == selectedPreset }) else {
+            phase = .failed("Файл режимов трансляции отсутствует. Переустанови MonoRelay.")
+            return
+        }
         var arguments = [
-            "--serial=\(headset.transport)", "--max-size=1600", "--max-fps=30",
-            "--video-bit-rate=8M", "--no-control", "--hwdec=disabled",
+            "--serial=\(headset.transport)", "--max-size=\(preset.maxSize)", "--max-fps=\(preset.fps)",
+            "--video-bit-rate=\(preset.bitRateMbps)M", "--no-control", "--hwdec=disabled",
             "--window-title=MonoRelay · Трансляция", "--window-width=880", "--window-height=495",
         ]
         if preferences.object(forKey: "singleEye") == nil || preferences.bool(forKey: "singleEye"),
@@ -128,14 +165,16 @@ final class Session: ObservableObject {
     }
 
     private func streamReady(id: UUID) {
-        guard runID == id, phase == .starting, player?.isRunning == true else { return }
+        guard runID == id, phase == .starting, !restartForPreset, player?.isRunning == true else { return }
         phase = .streaming
     }
 
     private func playerExited(_ code: Int32, id: UUID, canReconnect: Bool) {
         guard runID == id else { return }
         player = nil
-        if code == 2 && canReconnect {
+        if restartForPreset {
+            start()
+        } else if code == 2 && canReconnect {
             start(canReconnect: false)
         } else if code == 0 {
             stop()
@@ -234,6 +273,21 @@ struct HomeView: View {
             }
             .frame(maxWidth: .infinity, minHeight: 59, alignment: .topLeading)
             .accessibilityElement(children: .combine)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Picker("Режим трансляции", selection: Binding(
+                    get: { session.selectedPreset }, set: { session.selectPreset($0) }
+                )) {
+                    ForEach(StreamPreset.catalog) { preset in
+                        Text(preset.title).tag(preset.id)
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                if let preset = StreamPreset.catalog.first(where: { $0.id == session.selectedPreset }) {
+                    Text(preset.description).font(.caption).foregroundStyle(.secondary)
+                }
+            }
 
             HStack(spacing: 10) {
                 Button("Ввести IP…") { session.showAddress = true }

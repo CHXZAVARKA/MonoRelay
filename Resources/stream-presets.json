@@ -1,0 +1,5 @@
+[
+  {"id":"speed","title":"Задержка","description":"Меньше нагрузки на Wi‑Fi","maxSize":1280,"fps":30,"bitRateMbps":5},
+  {"id":"balance","title":"Баланс","description":"Для обычного просмотра","maxSize":1600,"fps":30,"bitRateMbps":8},
+  {"id":"quality","title":"Качество","description":"Больше деталей на стабильной сети","maxSize":1920,"fps":60,"bitRateMbps":16}
+]
