@@ -17,7 +17,7 @@ adb -s SERIAL install -r path/to/MonoRelay-Android-preview.apk
 
 ## Connect a Quest
 
-1. Turn on ADB over Wi-Fi on the headset. Connect the phone and Quest to the same local network. [Meta's guide](https://developers.meta.com/vr/documentation/native/android/ts-mqdh-basic-usage/).
+1. [Set up ADB over Wi-Fi on the headset](../SETUP.md). Use a computer for the first setup. Connect the phone and Quest to the same local network.
 2. Open MonoRelay. It looks for the Quest and connects when it finds one candidate. If the search comes up empty or finds several devices, tap Enter IP (`Ввести IP`) and enter the headset's address. Add `:port` if the debugging port differs from 5555.
 3. Approve the debugging prompt on the Quest. The app tries to find the same headset the next time you open it.
 

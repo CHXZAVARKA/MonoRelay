@@ -22,7 +22,7 @@ struct StreamPreset: Decodable, Identifiable {
 @MainActor
 final class Session: ObservableObject {
     enum Phase: Equatable {
-        case idle, searching, starting, streaming, failed(String)
+        case idle, searching, starting, streaming, setup(SetupStep), failed(String)
     }
 
     @Published private(set) var phase = Phase.idle
@@ -111,6 +111,8 @@ final class Session: ObservableObject {
         guard id == runID else { return }
         job = nil
         switch result {
+        case .setup(let step):
+            phase = .setup(step)
         case .unavailable(let message):
             phase = .failed(message)
         case .found(let headset):
@@ -294,8 +296,17 @@ struct HomeView: View {
                         .foregroundStyle(session.phase == .streaming ? Color.green : Color.secondary)
                         .accessibilityHidden(true)
                 }
-                Text(statusText)
-                    .fixedSize(horizontal: false, vertical: true)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(statusText).fixedSize(horizontal: false, vertical: true)
+                    if case .setup(let step) = session.phase {
+                        Text(step.instruction).font(.callout).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    if failed {
+                        Link("Как подключить", destination: URL(string: "https://github.com/CHXZAVARKA/MonoRelay/blob/main/SETUP.md")!)
+                            .font(.callout)
+                    }
+                }
             }
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -351,8 +362,10 @@ struct HomeView: View {
     private var isBusy: Bool { session.phase == .searching || session.phase == .starting }
 
     private var failed: Bool {
-        if case .failed = session.phase { return true }
-        return false
+        switch session.phase {
+        case .setup, .failed: true
+        default: false
+        }
     }
 
     private var statusText: String {
@@ -361,6 +374,7 @@ struct HomeView: View {
         case .searching: "Ищем Quest…"
         case .starting: "Ждём видео…"
         case .streaming: "Трансляция идёт"
+        case .setup(let step): step.title
         case .failed(let message): message
         }
     }

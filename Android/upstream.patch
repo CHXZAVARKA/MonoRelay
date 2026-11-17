@@ -1,5 +1,5 @@
 diff --git a/app/build.gradle.kts b/app/build.gradle.kts
-index 6a5a392..4fe5d4a 100644
+index 6a5a392..a7f5076 100644
 --- a/app/build.gradle.kts
 +++ b/app/build.gradle.kts
 @@ -105,11 +105,11 @@ android {
@@ -12,8 +12,8 @@ index 6a5a392..4fe5d4a 100644
          targetSdk = 36
 -        versionCode = 86
 -        versionName = "3.5.7"
-+        versionCode = 7
-+        versionName = "0.4.3"
++        versionCode = 9
++        versionName = "0.4.5"
          testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
          buildConfigField("String", "PUBLISHER_NAME", buildConfigString(publisherName))
          buildConfigField("String", "PUBLISHER_EMAIL", buildConfigString(publisherEmail))
@@ -268,10 +268,10 @@ index bedc9cd..7ef7a8f 100644
      fun reconnect() {
 diff --git a/app/src/main/java/com/scrcpy/remote/ui/MonoRelayActivity.kt b/app/src/main/java/com/scrcpy/remote/ui/MonoRelayActivity.kt
 new file mode 100644
-index 0000000..4756bbd
+index 0000000..04f318c
 --- /dev/null
 +++ b/app/src/main/java/com/scrcpy/remote/ui/MonoRelayActivity.kt
-@@ -0,0 +1,406 @@
+@@ -0,0 +1,417 @@
 +package com.scrcpy.remote.ui
 +
 +import android.content.Context
@@ -324,6 +324,7 @@ index 0000000..4756bbd
 +import androidx.compose.ui.Modifier
 +import androidx.compose.ui.graphics.Color
 +import androidx.compose.ui.platform.LocalFocusManager
++import androidx.compose.ui.platform.LocalUriHandler
 +import androidx.compose.ui.semantics.LiveRegionMode
 +import androidx.compose.ui.semantics.liveRegion
 +import androidx.compose.ui.semantics.semantics
@@ -419,6 +420,7 @@ index 0000000..4756bbd
 +        val connecting = state is MirrorUiState.Connecting
 +        val active = searching || connecting || connected != null
 +        val failed = searchFailed || state is MirrorUiState.Failed
++        val uriHandler = LocalUriHandler.current
 +        BackHandler(enabled = active || showAddress) {
 +            if (showAddress) showAddress = false else stopStream()
 +        }
@@ -447,11 +449,17 @@ index 0000000..4756bbd
 +                shape = MaterialTheme.shapes.small,
 +                color = MaterialTheme.colorScheme.surfaceVariant,
 +            ) {
-+                Row(Modifier.padding(horizontal = 12.dp, vertical = 9.dp),
-+                    horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-+                    if (searching || connecting) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
-+                    Text(statusText(state, checkup), style = MaterialTheme.typography.bodyMedium,
-+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
++                Column(Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
++                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
++                        if (searching || connecting) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
++                        Text(statusText(state, checkup), style = MaterialTheme.typography.bodyMedium,
++                            color = MaterialTheme.colorScheme.onSurfaceVariant)
++                    }
++                    if (failed) {
++                        TextButton(onClick = {
++                            uriHandler.openUri("https://github.com/CHXZAVARKA/MonoRelay/blob/main/SETUP.md")
++                        }) { Text("Как подключить") }
++                    }
 +                }
 +            }
 +
@@ -470,7 +478,8 @@ index 0000000..4756bbd
 +    }
 +
 +    private fun statusText(state: MirrorUiState, checkup: ConnectionCheckup?): String = when {
-+        checkup?.failedStage == CheckupStage.AUTHORIZE || checkup?.steps?.any {
++        checkup?.failedStage == CheckupStage.AUTHORIZE -> "Разреши отладку в очках и нажми «Повторить»."
++        checkup?.steps?.any {
 +            it.stage == CheckupStage.AUTHORIZE && it.status == StageStatus.RUNNING
 +        } == true -> "Подтверди в очках"
 +        searching -> "Ищем Quest…"
@@ -478,7 +487,9 @@ index 0000000..4756bbd
 +            it.stage == CheckupStage.MEDIA && it.status == StageStatus.PASSED
 +        } == true -> "Трансляция идёт"
 +        state is MirrorUiState.Connected || state is MirrorUiState.Connecting -> "Подключаемся к Quest…"
-+        searchFailed -> "Quest не найден. Проверь Wi-Fi."
++        searchFailed && !preferences.contains("serial") ->
++            "Первый запуск. Подключи Quest к компьютеру по USB и включи ADB по Wi-Fi."
++        searchFailed -> "Quest не найден. Проверь Wi-Fi и отладку."
 +        state is MirrorUiState.Failed -> "Не удалось подключиться к Quest"
 +        else -> "Готово к подключению"
 +    }

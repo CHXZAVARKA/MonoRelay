@@ -55,7 +55,8 @@ internal sealed class RelayForm : Form
     private AdaptiveQuality adaptive = new();
     private readonly QuestConnection connection = new(Path.Combine(AppContext.BaseDirectory, "Tools"));
     private readonly Label title = new() { Text = "Трансляция Quest", AutoSize = true, Font = new Font("Segoe UI", 17, FontStyle.Bold) };
-    private readonly Label status = new() { AutoSize = true, MaximumSize = new Size(360, 0) };
+    private readonly Label status = new() { AutoSize = true, MaximumSize = new Size(352, 0) };
+    private readonly LinkLabel guide = new() { AutoSize = true, Text = "Как подключить", Visible = false };
     private readonly Label statusIcon = new() { AutoSize = true, Font = new Font("Segoe MDL2 Assets", 12), Margin = new Padding(0, 3, 8, 0) };
     private string selectedQuality = AdaptiveQuality.Id;
     private readonly Button action = new() { AutoSize = true, Text = "Подключить" };
@@ -75,7 +76,7 @@ internal sealed class RelayForm : Form
     internal RelayForm(Preset[] presets)
     {
         this.presets = presets;
-        Text = "MonoRelay"; ClientSize = new Size(440, 242);
+        Text = "MonoRelay"; ClientSize = new Size(440, 270);
         Icon = System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         Font = new Font("Segoe UI", 10);
         AutoScaleMode = AutoScaleMode.Dpi;
@@ -83,7 +84,7 @@ internal sealed class RelayForm : Form
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
         var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 6, Padding = new Padding(24) };
-        foreach (int height in new[] { 42, 8, 48, 34 }) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, height));
+        foreach (int height in new[] { 42, 8, 74, 34 }) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, height));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         var header = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, Margin = Padding.Empty };
@@ -98,9 +99,11 @@ internal sealed class RelayForm : Form
         var state = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = Padding.Empty };
         state.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 26));
         state.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        status.Anchor = AnchorStyles.Left | AnchorStyles.Top;
+        var messages = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown,
+            WrapContents = false, Margin = Padding.Empty };
+        messages.Controls.AddRange([status, guide]);
         state.Controls.Add(statusIcon, 0, 0);
-        state.Controls.Add(status, 1, 0);
+        state.Controls.Add(messages, 1, 0);
         layout.Controls.Add(state, 0, 2);
         layout.Controls.Add(CreateModes(), 0, 3);
         layout.Controls.Add(address, 0, 4);
@@ -115,6 +118,8 @@ internal sealed class RelayForm : Form
         layout.Controls.Add(buttons, 0, 5);
         Controls.Add(layout);
         ShowState("Готово к подключению", "Подключить");
+        guide.LinkClicked += (_, _) => Process.Start(new ProcessStartInfo(
+            "https://github.com/CHXZAVARKA/MonoRelay/blob/main/SETUP.md") { UseShellExecute = true });
         address.Text = preferences.Addresses?.FirstOrDefault() ?? "";
         address.TextChanged += (_, _) => action.Enabled = !enteringAddress || Endpoint.Parse(address.Text) is not null;
         action.Click += async (_, _) =>
@@ -176,6 +181,7 @@ internal sealed class RelayForm : Form
         statusIcon.Text = sawWindow ? "\ue73e" : "\ue701";
         action.Text = button;
         manual.Visible = canEnterIP;
+        guide.Visible = canEnterIP;
         if (!canEnterIP) SetAddressEntry(false);
     }
 
@@ -245,13 +251,20 @@ internal sealed class RelayForm : Form
         ShowState("Ищем Quest…", "Стоп");
         try
         {
-            var found = await Task.Run(async () => await connection.Find(preferences.Serial,
+            var result = await Task.Run(async () => await connection.Find(preferences.Serial,
                 preferences.Addresses ?? [], endpoint, retry, operation.Token), operation.Token);
             if (id != generation) return;
             pending = null;
-            if (found is null)
+            if (result.Device is not { } found)
             {
-                ShowState("Quest не найден. Проверь Wi-Fi и отладку.", "Повторить", true);
+                var message = result.Step switch
+                {
+                    SetupStep.PlugIn => "Подключи Quest по USB и разреши отладку в очках.",
+                    SetupStep.Approve => "Подтверди отладку в очках и нажми «Повторить».",
+                    SetupStep.EnableWiFi => "Включи ADB по Wi‑Fi в Meta VR Developer Hub. Затем вынь кабель.",
+                    _ => "Quest не найден. Проверь Wi‑Fi и отладку.",
+                };
+                ShowState(message, "Повторить", true);
                 return;
             }
             var addresses = preferences.Addresses ?? [];

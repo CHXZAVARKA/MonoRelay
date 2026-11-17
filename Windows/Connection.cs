@@ -42,6 +42,10 @@ internal sealed record Endpoint(IPAddress Address, int Port)
 
 internal sealed record Headset(string Transport, string Serial, Endpoint? Address, string? Crop);
 
+internal enum SetupStep { None, PlugIn, Approve, EnableWiFi }
+
+internal sealed record SearchResult(Headset? Device, SetupStep Step = SetupStep.None);
+
 internal sealed class QuestConnection(string engine)
 {
     internal string Adb => Path.Combine(engine, "adb.exe");
@@ -97,10 +101,21 @@ internal sealed class QuestConnection(string engine)
         .Select(line => line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
         .Where(fields => fields.Length >= 2).ToArray();
 
-    internal async Task<Headset?> Find(string? known, IReadOnlyList<string> history, Endpoint? manual,
-                                      bool reconnecting, CancellationToken token)
+    private async Task<Endpoint?> WiFiFromUSB(string usb, CancellationToken token)
+    {
+        var port = await AdbCall(token, "-s", usb, "shell", "getprop", "service.adb.tcp.port");
+        if (!int.TryParse(port, out int portNumber) || portNumber is < 1 or > 65535) return null;
+        var rows = Rows(await AdbCall(token, "-s", usb, "shell", "ip", "-4", "addr", "show", "wlan0"));
+        var address = rows.FirstOrDefault(row => row[0] == "inet")?[1].Split('/')[0];
+        return address is null ? null : Endpoint.Parse($"{address}:{portNumber}");
+    }
+
+    internal async Task<SearchResult> Find(string? known, IReadOnlyList<string> history, Endpoint? manual,
+                                           bool reconnecting, CancellationToken token)
     {
         var attempted = new Dictionary<string, int>();
+        bool awaitingApproval = false;
+        bool needsWiFi = false;
         var passes = reconnecting ? 7 : 3;
         for (int pass = 0; pass < passes; pass++)
         {
@@ -112,6 +127,8 @@ internal sealed class QuestConnection(string engine)
                 var verifiedUsb = await Verify(usb[0][0], null, null, token);
                 if (verifiedUsb is not null) known = verifiedUsb.Serial;
             }
+            awaitingApproval |= devices.Any(d => d[1] == "unauthorized" &&
+                (d[0] == known || d.Any(field => field.StartsWith("model:Quest", StringComparison.OrdinalIgnoreCase))));
 
             if (manual is null)
             {
@@ -119,7 +136,7 @@ internal sealed class QuestConnection(string engine)
                     (Endpoint.Parse(d[0]) is not null || d[0].Contains("_adb-tls-connect._tcp"))).ToArray();
                 if (known is not null || active.Length == 1)
                     foreach (var d in active)
-                        if (await Verify(d[0], known, Endpoint.Parse(d[0]), token) is { } connected) return connected;
+                        if (await Verify(d[0], known, Endpoint.Parse(d[0]), token) is { } connected) return new(connected);
             }
 
             var candidates = new List<Endpoint>();
@@ -141,6 +158,11 @@ internal sealed class QuestConnection(string engine)
                     if (Endpoint.Parse(fields[2]) is { } endpoint && endpoint.IsLocal()) advertised.Add(endpoint);
                 }
                 if (known is not null || advertised.Count == 1) candidates.AddRange(advertised);
+                if (usb.FirstOrDefault(d => d[0] == known) is { } attached)
+                {
+                    if (await WiFiFromUSB(attached[0], token) is { } usbAddress) candidates.Add(usbAddress);
+                    else needsWiFi = true;
+                }
                 candidates.AddRange(history.Take(8).Select(Endpoint.Parse).OfType<Endpoint>());
             }
             foreach (var candidate in candidates)
@@ -152,11 +174,16 @@ internal sealed class QuestConnection(string engine)
                 attempted[address] = pass;
                 if (devices.Any(fields => fields[0] == address && fields[1] == "offline"))
                     await AdbCall(token, "disconnect", address);
-                await AdbCall(token, "connect", address);
-                if (await Verify(address, known, candidate, token) is { } connected) return connected;
+                var output = await AdbCall(token, "connect", address);
+                if (await Verify(address, known, candidate, token) is { } connected) return new(connected);
+                awaitingApproval |= output.Contains("authenticate", StringComparison.OrdinalIgnoreCase) ||
+                                    output.Contains("unauthorized", StringComparison.OrdinalIgnoreCase);
             }
             if (pass + 1 < passes) await Task.Delay(800, token);
         }
-        return null;
+        if (awaitingApproval) return new(null, SetupStep.Approve);
+        if (manual is null && needsWiFi) return new(null, SetupStep.EnableWiFi);
+        if (manual is null && known is null) return new(null, SetupStep.PlugIn);
+        return new(null);
     }
 }

@@ -94,8 +94,29 @@ struct Headset {
     let crop: String?
 }
 
+enum SetupStep: Equatable {
+    case plugIn, approve, enableWiFi
+
+    var title: String {
+        switch self {
+        case .plugIn: "Подключи Quest по USB"
+        case .approve: "Подтверди в очках"
+        case .enableWiFi: "Включи ADB по Wi‑Fi"
+        }
+    }
+
+    var instruction: String {
+        switch self {
+        case .plugIn: "При первой настройке разреши отладку в очках."
+        case .approve: "Разреши отладку и нажми «Повторить»."
+        case .enableWiFi: "В Meta VR Developer Hub. Затем вынь кабель и нажми «Повторить»."
+        }
+    }
+}
+
 enum SearchResult {
     case found(Headset)
+    case setup(SetupStep)
     case unavailable(String)
 }
 
@@ -182,9 +203,13 @@ struct QuestSearch {
         let fallback = usb.flatMap(wifiAddressFromUSB)
         var attempted: [String: Int] = [:]
         var connectionHint: String?
+        var awaitingApproval = false
         for pass in 0..<passes {
             if cancelled() { break }
             let current = pass == 0 ? initial : devices
+            if current.contains(where: { device in
+                device.state == "unauthorized" && (device.quest || device.transport == identity)
+            }) { awaitingApproval = true }
             if manual == nil {
                 let wireless = current.filter {
                     !$0.usb && $0.quest && $0.state == "device" &&
@@ -227,19 +252,20 @@ struct QuestSearch {
                 }
                 if output.localizedCaseInsensitiveContains("No route to host") {
                     connectionHint = "Mac не может открыть соединение. Проверь доступ MonoRelay к локальной сети в настройках macOS."
-                } else if output.localizedCaseInsensitiveContains("authenticate") {
-                    connectionHint = "Подтверди отладку в очках и попробуй ещё раз."
+                } else if output.localizedCaseInsensitiveContains("authenticate") ||
+                            output.localizedCaseInsensitiveContains("unauthorized") {
+                    awaitingApproval = true
                 }
             }
             if pass < passes - 1 && !cancelled() { Thread.sleep(forTimeInterval: 0.8) }
         }
+        if awaitingApproval { return .setup(.approve) }
         if let connectionHint { return .unavailable(connectionHint) }
         if knownUSB.count > 1 || initial.filter({ !$0.usb && $0.quest && $0.state == "device" }).count > 1 {
             return .unavailable("Доступно несколько шлемов. Укажи IP нужного Quest.")
         }
-        if usb != nil && fallback == nil {
-            return .unavailable("Quest виден по USB. Для стрима включи ADB по Wi‑Fi в Meta VR Developer Hub и повтори подключение.")
-        }
+        if manual == nil && usb != nil && fallback == nil { return .setup(.enableWiFi) }
+        if manual == nil && identity == nil { return .setup(.plugIn) }
         return .unavailable("Проверь, что Quest включён, ADB по Wi‑Fi активен, а Mac в той же сети.")
     }
 }
