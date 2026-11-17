@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <title>MonoRelay</title>
+  <defs>
+    <linearGradient id="blue" x1="28%" y1="100%" x2="72%" y2="0%">
+      <stop stop-color="#24387d"/>
+      <stop offset="1" stop-color="#4f63bf"/>
+    </linearGradient>
+  </defs>
+  <rect x="108" y="108" width="808" height="808" rx="186" fill="url(#blue)"/>
+  <rect x="260" y="374" width="504" height="279" rx="104" fill="none" stroke="#fff" stroke-width="31"/>
+  <rect x="333" y="447" width="351" height="133" rx="44" fill="#fff" fill-opacity=".23"/>
+  <circle cx="509" cy="513" r="43" fill="#fff"/>
+</svg>
