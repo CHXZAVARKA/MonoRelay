@@ -6,7 +6,7 @@ using System.Text.Json;
 
 namespace MonoRelay.Windows;
 
-internal sealed record Preset(string Id, string Title, int MaxSize, int Fps, int BitRateMbps,
+internal sealed record Preset(string Id, string Title, string Detail, int MaxSize, int Fps, int BitRateMbps,
                               int VideoBufferMs, int AudioBufferMs);
 
 internal sealed record Preferences(string Preset = AdaptiveQuality.Id, string? Serial = null, string[]? Addresses = null)
@@ -41,6 +41,7 @@ internal static class Program
         using var instance = new Mutex(true, "Local\\MonoRelay", out bool isFirst);
         if (!isFirst) return;
         ApplicationConfiguration.Initialize();
+        Application.SetColorMode(SystemColorMode.System);
         using var data = Assembly.GetExecutingAssembly().GetManifestResourceStream("stream-presets.json")!;
         var presets = JsonSerializer.Deserialize<Preset[]>(data, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
         Application.Run(new RelayForm(presets));
@@ -54,15 +55,23 @@ internal sealed class RelayForm : Form
 
     private AdaptiveQuality adaptive = new();
     private readonly QuestConnection connection = new(Path.Combine(AppContext.BaseDirectory, "Tools"));
-    private readonly Label title = new() { Text = "Трансляция Quest", AutoSize = true, Font = new Font("Segoe UI", 17, FontStyle.Bold) };
-    private readonly Label status = new() { AutoSize = true, MaximumSize = new Size(352, 0) };
-    private readonly LinkLabel guide = new() { AutoSize = true, Text = "Как подключить", Visible = false };
-    private readonly Label statusIcon = new() { AutoSize = true, Font = new Font("Segoe MDL2 Assets", 12), Margin = new Padding(0, 3, 8, 0) };
+    private readonly Label status = new() {
+        AutoSize = true, MinimumSize = new Size(0, 22), MaximumSize = new Size(360, 0),
+        TextAlign = ContentAlignment.MiddleCenter, Margin = Padding.Empty,
+    };
+    private readonly Panel statusDot = new() { Size = new Size(8, 22), Margin = new Padding(0, 0, 8, 0) };
+    private readonly Label instruction = new() { AutoSize = true, Anchor = AnchorStyles.None, MaximumSize = new Size(376, 0),
+        TextAlign = ContentAlignment.MiddleCenter, ForeColor = LauncherColors.Secondary, Margin = Padding.Empty };
+    private readonly Label quality = new() { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter,
+        ForeColor = LauncherColors.Secondary, Margin = Padding.Empty };
+    private readonly LinkLabel guide = new() { AutoSize = true, Text = "Setup guide", Anchor = AnchorStyles.None,
+        LinkColor = LauncherColors.Surface.GetBrightness() < 0.5f ? Color.FromArgb(144, 190, 255) : LauncherColors.Accent };
     private string selectedQuality = AdaptiveQuality.Id;
-    private readonly Button action = new() { AutoSize = true, Text = "Подключить" };
-    private readonly Button manual = new() { AutoSize = true, Text = "Ввести IP", Visible = false };
-    private readonly TextBox address = new() { PlaceholderText = "192.168.1.42", Dock = DockStyle.Top,
-        AccessibleName = "IP Quest", Visible = false };
+    private readonly RelayAction action = new() { Dock = DockStyle.Fill, Text = "Connect", Primary = true, Margin = Padding.Empty };
+    private readonly RelayAction manual = new() { Dock = DockStyle.Fill, Text = "Enter IP", Margin = Padding.Empty, Visible = false };
+    private readonly TextBox address = new() { PlaceholderText = "Quest IP address",
+        Anchor = AnchorStyles.Left | AnchorStyles.Right, Margin = new Padding(8, 0, 8, 0),
+        AccessibleName = "Quest IP address", Visible = false };
     private bool enteringAddress;
     private readonly System.Windows.Forms.Timer frame = new() { Interval = 200 };
     private Preferences preferences = Preferences.Load();
@@ -76,48 +85,72 @@ internal sealed class RelayForm : Form
     internal RelayForm(Preset[] presets)
     {
         this.presets = presets;
-        Text = "MonoRelay"; ClientSize = new Size(440, 270);
+        Text = "MonoRelay";
         Icon = System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         Font = new Font("Segoe UI", 10);
         AutoScaleMode = AutoScaleMode.Dpi;
         StartPosition = FormStartPosition.CenterScreen;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
-        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 6, Padding = new Padding(24) };
-        foreach (int height in new[] { 42, 8, 74, 34 }) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, height));
-        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        var header = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, Margin = Padding.Empty };
-        header.Controls.Add(new PictureBox { Image = Icon?.ToBitmap(), Size = new Size(28, 28),
-            SizeMode = PictureBoxSizeMode.StretchImage, Margin = new Padding(0, 0, 10, 0) });
-        title.Margin = Padding.Empty;
-        header.Controls.Add(title);
-        layout.Controls.Add(header, 0, 0);
-        layout.Controls.Add(new Panel { Height = 1, Dock = DockStyle.Top, BackColor = SystemColors.ControlDark,
-            Margin = Padding.Empty }, 0, 1);
+        BackColor = LauncherColors.Surface;
+        ForeColor = LauncherColors.Text;
+        using var iconStream = Assembly.GetExecutingAssembly().GetManifestResourceStream("MonoRelay.ico");
+        using var largeIcon = iconStream is null ? null : new Icon(iconStream, 128, 128);
+        var mark = largeIcon?.ToBitmap();
+        if (mark is not null) Disposed += (_, _) => mark.Dispose();
 
-        var state = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = Padding.Empty };
-        state.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 26));
+        var layout = new TableLayoutPanel {
+            Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 7, Padding = new Padding(28),
+        };
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        foreach (int height in new[] { 80, 50, 88, 42, 40, 20, 40 })
+            layout.RowStyles.Add(new RowStyle(SizeType.Absolute, height));
+        ClientSize = new Size(460, 416);
+        layout.Controls.Add(new PictureBox {
+            Image = mark, Size = new Size(80, 80), SizeMode = PictureBoxSizeMode.Zoom,
+            Anchor = AnchorStyles.None, Margin = Padding.Empty,
+        }, 0, 0);
+        layout.Controls.Add(new Label {
+            Text = "MonoRelay", Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter,
+            Font = new Font("Segoe UI Semibold", 25), Margin = Padding.Empty,
+        }, 0, 1);
+
+        var state = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3, Margin = Padding.Empty };
         state.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        var messages = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown,
-            WrapContents = false, Margin = Padding.Empty };
-        messages.Controls.AddRange([status, guide]);
-        state.Controls.Add(statusIcon, 0, 0);
-        state.Controls.Add(messages, 1, 0);
+        state.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        state.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        state.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
+        var statusRow = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Anchor = AnchorStyles.None,
+            Margin = Padding.Empty };
+        statusDot.Paint += (_, e) =>
+        {
+            e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            int diameter = statusDot.LogicalToDeviceUnits(8);
+            using var brush = new SolidBrush(sawWindow && !SystemInformation.HighContrast
+                ? Color.FromArgb(26, 141, 79) : LauncherColors.Accent);
+            e.Graphics.FillEllipse(brush, 0, (statusDot.Height - diameter) / 2, diameter, diameter);
+        };
+        statusRow.Controls.AddRange([statusDot, status]);
+        state.Controls.Add(statusRow, 0, 0);
+        state.Controls.Add(instruction, 0, 1);
+        state.Controls.Add(guide, 0, 2);
         layout.Controls.Add(state, 0, 2);
         layout.Controls.Add(CreateModes(), 0, 3);
-        layout.Controls.Add(address, 0, 4);
+        layout.Controls.Add(quality, 0, 4);
+        layout.Controls.Add(new Panel { Height = 1, Dock = DockStyle.Top, BackColor = LauncherColors.Divider,
+            Margin = new Padding(0, 5, 0, 0) }, 0, 5);
 
-        var buttons = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Margin = Padding.Empty };
-        buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
-        manual.Anchor = AnchorStyles.Left | AnchorStyles.Top;
-        action.Anchor = AnchorStyles.Right | AnchorStyles.Top;
+        var buttons = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, Margin = Padding.Empty };
+        buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 100));
+        buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 112));
         buttons.Controls.Add(manual, 0, 0);
-        buttons.Controls.Add(action, 1, 0);
-        layout.Controls.Add(buttons, 0, 5);
+        buttons.Controls.Add(address, 1, 0);
+        buttons.Controls.Add(action, 2, 0);
+        layout.Controls.Add(buttons, 0, 6);
         Controls.Add(layout);
-        ShowState("Готово к подключению", "Подключить");
+        UpdateQualityDetail();
+        ShowState("Ready to connect", "Connect");
         guide.LinkClicked += (_, _) => Process.Start(new ProcessStartInfo(
             "https://github.com/CHXZAVARKA/MonoRelay/blob/main/SETUP.md") { UseShellExecute = true });
         address.Text = preferences.Addresses?.FirstOrDefault() ?? "";
@@ -131,7 +164,7 @@ internal sealed class RelayForm : Form
         manual.Click += (_, _) =>
         {
             SetAddressEntry(!enteringAddress);
-            action.Text = enteringAddress ? "Подключить" : "Повторить";
+            action.Text = enteringAddress ? "Connect" : "Retry";
             if (enteringAddress) address.Select();
         };
         frame.Tick += (_, _) =>
@@ -140,7 +173,7 @@ internal sealed class RelayForm : Form
             player.Refresh();
             if (player.MainWindowHandle == IntPtr.Zero) return;
             sawWindow = true;
-            ShowState("Трансляция идёт", "Стоп");
+            ShowState("Streaming", "Stop");
             frame.Stop();
         };
         Shown += async (_, _) => await Start();
@@ -150,17 +183,18 @@ internal sealed class RelayForm : Form
 
     private Control CreateModes()
     {
-        var choices = new[] { (Id: AdaptiveQuality.Id, Title: "Авто") }
+        var choices = new[] { (Id: AdaptiveQuality.Id, Title: "Auto") }
             .Concat(presets.Select(preset => (preset.Id, preset.Title))).ToArray();
-        var modes = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = choices.Length, RowCount = 1,
-            Margin = Padding.Empty, AccessibleName = "Режим трансляции" };
+        var modes = new RelayTrack { Dock = DockStyle.Fill, ColumnCount = choices.Length, RowCount = 1,
+            Margin = Padding.Empty, Padding = new Padding(3), BackColor = LauncherColors.Track,
+            AccessibleName = "Stream quality" };
+        modes.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         selectedQuality = choices.FirstOrDefault(choice => choice.Id == preferences.Preset).Id ?? AdaptiveQuality.Id;
         foreach (var choice in choices)
         {
             modes.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f / choices.Length));
-            var button = new RadioButton { Text = choice.Title, Appearance = Appearance.Button,
-                Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, Margin = Padding.Empty,
-                Checked = choice.Id == selectedQuality };
+            var button = new RelaySegment { Text = choice.Title,
+                Dock = DockStyle.Fill, Margin = Padding.Empty, Checked = choice.Id == selectedQuality };
             button.CheckedChanged += (_, _) =>
             {
                 if (!button.Checked || selectedQuality == choice.Id) return;
@@ -175,11 +209,17 @@ internal sealed class RelayForm : Form
     private bool IsAuto => selectedQuality == AdaptiveQuality.Id;
     private Preset Current => IsAuto ? presets[adaptive.Index] : presets.First(p => p.Id == selectedQuality);
 
-    private void ShowState(string message, string button, bool canEnterIP = false)
+    private void UpdateQualityDetail() => quality.Text = IsAuto ? "Adjusts quality as you watch" : Current.Detail;
+
+    private void ShowState(string message, string button, bool canEnterIP = false, string detail = "")
     {
         status.Text = message;
-        statusIcon.Text = sawWindow ? "\ue73e" : "\ue701";
+        instruction.Text = detail;
+        instruction.Visible = detail.Length != 0;
+        statusDot.Invalidate();
         action.Text = button;
+        action.Primary = button != "Stop";
+        action.Invalidate();
         manual.Visible = canEnterIP;
         guide.Visible = canEnterIP;
         if (!canEnterIP) SetAddressEntry(false);
@@ -189,13 +229,14 @@ internal sealed class RelayForm : Form
     {
         enteringAddress = visible;
         address.Visible = visible;
-        manual.Text = visible ? "Скрыть IP" : "Ввести IP";
+        manual.Text = visible ? "Cancel" : "Enter IP";
         action.Enabled = !visible || Endpoint.Parse(address.Text) is not null;
     }
 
     private void SetPreset()
     {
         adaptive = new();
+        UpdateQualityDetail();
         preferences = preferences with { Preset = selectedQuality };
         preferences.Save();
         RestartPlayer();
@@ -205,7 +246,7 @@ internal sealed class RelayForm : Form
     {
         if (player is null || restartForPreset) return;
         restartForPreset = true;
-        ShowState("Меняем качество…", "Стоп");
+        ShowState("Changing quality…", "Stop");
         EndPlayer(player);
     }
 
@@ -220,7 +261,7 @@ internal sealed class RelayForm : Form
         var previous = player;
         player = null;
         if (previous is not null) EndPlayer(previous);
-        ShowState("Готово к подключению", "Подключить");
+        ShowState("Ready to connect", "Connect");
     }
 
     private static void EndPlayer(Process process)
@@ -236,19 +277,19 @@ internal sealed class RelayForm : Form
         Stop();
         if (!connection.IsInstalled)
         {
-            ShowState("Распакуй весь ZIP, включая папку Tools.", "Повторить");
+            ShowState("Extract the whole ZIP, including the Tools folder.", "Retry");
             return;
         }
         if (endpoint is not null && !endpoint.IsLocal())
         {
-            ShowState("Этот IP вне локальной сети компьютера.", "Повторить", true);
+            ShowState("This IP address is outside your local network.", "Retry", true);
             return;
         }
 
         var id = generation;
         using var operation = new CancellationTokenSource();
         pending = operation;
-        ShowState("Ищем Quest…", "Стоп");
+        ShowState("Looking for Quest…", "Stop");
         try
         {
             var result = await Task.Run(async () => await connection.Find(preferences.Serial,
@@ -257,14 +298,14 @@ internal sealed class RelayForm : Form
             pending = null;
             if (result.Device is not { } found)
             {
-                var message = result.Step switch
+                var (message, detail) = result.Step switch
                 {
-                    SetupStep.PlugIn => "Подключи Quest по USB и разреши отладку в очках.",
-                    SetupStep.Approve => "Подтверди отладку в очках и нажми «Повторить».",
-                    SetupStep.EnableWiFi => "Включи ADB по Wi‑Fi в Meta VR Developer Hub. Затем вынь кабель.",
-                    _ => "Quest не найден. Проверь Wi‑Fi и отладку.",
+                    SetupStep.PlugIn => ("Connect Quest by USB", "Approve the USB debugging prompt in your headset."),
+                    SetupStep.Approve => ("Confirm in the headset", "Approve debugging, then click Retry."),
+                    SetupStep.EnableWiFi => ("Enable ADB over Wi-Fi", "Use Meta VR Developer Hub, then unplug USB and click Retry."),
+                    _ => ("Quest not found", "Check Wi-Fi and ADB over Wi-Fi."),
                 };
-                ShowState(message, "Повторить", true);
+                ShowState(message, "Retry", true, detail);
                 return;
             }
             var addresses = preferences.Addresses ?? [];
@@ -279,7 +320,7 @@ internal sealed class RelayForm : Form
         {
             if (id != generation) return;
             pending = null;
-            ShowState("Не удалось подключиться. Проверь папку Tools.", "Повторить", true);
+            ShowState("Could not connect. Check the Tools folder.", "Retry", true);
         }
     }
 
@@ -289,7 +330,7 @@ internal sealed class RelayForm : Form
         var args = new List<string> { $"--serial={headset.Transport}", $"--max-size={preset.MaxSize}",
             $"--max-fps={preset.Fps}", $"--video-bit-rate={preset.BitRateMbps}M", $"--video-buffer={preset.VideoBufferMs}",
             "--no-control", "--hwdec=disabled", "--pause-on-exit=false",
-            "--window-title=MonoRelay · Трансляция", "--window-width=880", "--window-height=495",
+            "--window-title=MonoRelay · Stream", "--window-width=880", "--window-height=495",
             "--audio-source=playback", "--audio-dup", $"--audio-buffer={preset.AudioBufferMs}" };
         var automatic = IsAuto;
         if (automatic)
@@ -323,7 +364,7 @@ internal sealed class RelayForm : Form
                     if (restartForPreset) await Start(keepAdaptive: true);
                     else if (exit == 2 && !retry) await Start(retry: true, keepAdaptive: true);
                     else if (exit == 0) Stop();
-                    else ShowState("Связь с Quest прервалась.", "Повторить", true);
+                    else ShowState("Lost the connection to Quest.", "Retry", true);
                 });
         };
         try
@@ -338,7 +379,7 @@ internal sealed class RelayForm : Form
         player = process;
         if (automatic) process.BeginOutputReadLine();
         sawWindow = false;
-        ShowState("Ждём видео…", "Стоп");
+        ShowState("Waiting for video…", "Stop");
         frame.Start();
     }
 

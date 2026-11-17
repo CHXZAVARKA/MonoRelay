@@ -29,10 +29,10 @@ python Windows/package.py win-arm64 scrcpy-winarm64-v5.0.1.zip MonoRelay-Windows
 
 ## Android
 
-Install JDK 21 and Android SDK 36. The build script checks out [Scrcpy Remote 3.5.7](https://github.com/dhun2666/scrcpy-client-for-android/tree/889bae6a92172f4fb8fa19ca173e330ef64e2abf), applies the MonoRelay patch, and produces a debug-signed APK.
+Install JDK 21 and Android SDK 36. The build script checks out [Scrcpy Remote 3.5.7](https://github.com/dhun2666/scrcpy-client-for-android/tree/889bae6a92172f4fb8fa19ca173e330ef64e2abf), applies the MonoRelay patch, and produces a release-mode APK signed with your local Android debug key.
 
 ```sh
-./Android/build.sh MonoRelay-Android-preview.apk
+./Android/build.sh MonoRelay-Android.apk
 ```
 
 [Install the APK and connect a Quest](Android/README.md)

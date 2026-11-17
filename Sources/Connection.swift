@@ -99,17 +99,17 @@ enum SetupStep: Equatable {
 
     var title: String {
         switch self {
-        case .plugIn: "Подключи Quest по USB"
-        case .approve: "Подтверди в очках"
-        case .enableWiFi: "Включи ADB по Wi‑Fi"
+        case .plugIn: "Connect Quest by USB"
+        case .approve: "Confirm in the headset"
+        case .enableWiFi: "Enable ADB over Wi-Fi"
         }
     }
 
     var instruction: String {
         switch self {
-        case .plugIn: "При первой настройке разреши отладку в очках."
-        case .approve: "Разреши отладку и нажми «Повторить»."
-        case .enableWiFi: "В Meta VR Developer Hub. Затем вынь кабель и нажми «Повторить»."
+        case .plugIn: "Approve the USB debugging prompt in your headset."
+        case .approve: "Approve debugging, then click Retry."
+        case .enableWiFi: "Use Meta VR Developer Hub, then unplug USB and click Retry."
         }
     }
 }
@@ -237,7 +237,7 @@ struct QuestSearch {
             for endpoint in addresses {
                 if cancelled() { break }
                 guard endpoint.isOnLocalNetwork else {
-                    if manual != nil { connectionHint = "Этот IP не в локальной сети Mac. Проверь Wi‑Fi и адрес Quest." }
+                    if manual != nil { connectionHint = "This IP address is outside your local network. Check Wi-Fi and the Quest address." }
                     continue
                 }
                 let previousPass = attempted[endpoint.value]
@@ -251,7 +251,7 @@ struct QuestSearch {
                     return .found(match)
                 }
                 if output.localizedCaseInsensitiveContains("No route to host") {
-                    connectionHint = "Mac не может открыть соединение. Проверь доступ MonoRelay к локальной сети в настройках macOS."
+                    connectionHint = "Allow MonoRelay to access your local network in macOS System Settings."
                 } else if output.localizedCaseInsensitiveContains("authenticate") ||
                             output.localizedCaseInsensitiveContains("unauthorized") {
                     awaitingApproval = true
@@ -262,10 +262,10 @@ struct QuestSearch {
         if awaitingApproval { return .setup(.approve) }
         if let connectionHint { return .unavailable(connectionHint) }
         if knownUSB.count > 1 || initial.filter({ !$0.usb && $0.quest && $0.state == "device" }).count > 1 {
-            return .unavailable("Доступно несколько шлемов. Укажи IP нужного Quest.")
+            return .unavailable("Multiple headsets found. Enter your Quest IP address.")
         }
         if manual == nil && usb != nil && fallback == nil { return .setup(.enableWiFi) }
         if manual == nil && identity == nil { return .setup(.plugIn) }
-        return .unavailable("Проверь, что Quest включён, ADB по Wi‑Fi активен, а Mac в той же сети.")
+        return .unavailable("Keep your Quest awake, enable ADB over Wi-Fi, and check that both devices share a network.")
     }
 }

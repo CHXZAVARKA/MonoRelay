@@ -11,10 +11,10 @@
 
 | In the app | What to do |
 | --- | --- |
-| Connect Quest by USB (`Подключи Quest по USB`) | Plug the headset into your computer to set up ADB over Wi-Fi. |
-| Confirm in the headset (`Подтверди в очках`) | Approve the debugging prompt on your Quest. Tap Retry (`Повторить`) if the attempt timed out. |
-| Enable ADB over Wi-Fi (`Включи ADB по Wi‑Fi`) | Turn it on in Meta VR Developer Hub, unplug USB, then click Retry. |
-| Looking for Quest (`Ищем Quest…`) | Keep the Quest on and connected to the same network. |
-| Streaming (`Трансляция идёт`) | The video is ready. |
+| Connect Quest by USB | Plug the headset into your computer to set up ADB over Wi-Fi. |
+| Confirm in the headset | Approve the debugging prompt on your Quest. Tap Retry if the attempt timed out. |
+| Enable ADB over Wi-Fi | Turn it on in Meta VR Developer Hub, unplug USB, then click Retry. |
+| Looking for Quest | Keep the Quest on and connected to the same network. |
+| Streaming | The video is ready. |
 
-If the headset isn't found, use Enter IP (`Ввести IP`) and the address shown in the Quest's Wi-Fi settings. The default port is `5555`. You may need to re-enable ADB over Wi-Fi after a headset restart. Use wireless debugging on a network you trust.
+If the headset isn't found, use Enter IP and the address shown in the Quest's Wi-Fi settings. The default port is `5555`. You may need to re-enable ADB over Wi-Fi after a headset restart. Use wireless debugging on a network you trust.

@@ -1,5 +1,5 @@
 diff --git a/app/build.gradle.kts b/app/build.gradle.kts
-index 6a5a392..a7f5076 100644
+index 6a5a392..bf5cb89 100644
 --- a/app/build.gradle.kts
 +++ b/app/build.gradle.kts
 @@ -105,11 +105,11 @@ android {
@@ -12,8 +12,8 @@ index 6a5a392..a7f5076 100644
          targetSdk = 36
 -        versionCode = 86
 -        versionName = "3.5.7"
-+        versionCode = 9
-+        versionName = "0.4.5"
++        versionCode = 10
++        versionName = "1.0.0"
          testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
          buildConfigField("String", "PUBLISHER_NAME", buildConfigString(publisherName))
          buildConfigField("String", "PUBLISHER_EMAIL", buildConfigString(publisherEmail))
@@ -173,7 +173,7 @@ index 21f85d9..f1ad78d 100644
 -
  </manifest>
 diff --git a/app/src/main/java/com/scrcpy/remote/scrcpy/ScrcpySession.kt b/app/src/main/java/com/scrcpy/remote/scrcpy/ScrcpySession.kt
-index 4f22c27..4210fd5 100644
+index 4f22c27..100312f 100644
 --- a/app/src/main/java/com/scrcpy/remote/scrcpy/ScrcpySession.kt
 +++ b/app/src/main/java/com/scrcpy/remote/scrcpy/ScrcpySession.kt
 @@ -639,12 +639,31 @@ class ScrcpySession private constructor(
@@ -184,10 +184,10 @@ index 4f22c27..4210fd5 100644
 +                val serial = adb.runShellCommand("getprop ro.serialno").trim()
 +                val knownQuest = context.getSharedPreferences("mono_relay", Context.MODE_PRIVATE)
 +                require(model.startsWith("Quest", ignoreCase = true) && serial.matches(Regex("^[A-Za-z0-9_-]{5,64}$"))) {
-+                    "По этому адресу нужен Meta Quest."
++                    "This address is not a Meta Quest."
 +                }
 +                val previousQuest = knownQuest.getString("serial", null)
-+                require(previousQuest == null || previousQuest == serial) { "Это другой шлем." }
++                require(previousQuest == null || previousQuest == serial) { "This is a different headset." }
 +                val size = Regex("""(\d+)x(\d+)""").findAll(adb.runShellCommand("wm size")).lastOrNull()
 +                val width = size?.groupValues?.get(1)?.toIntOrNull()
 +                val height = size?.groupValues?.get(2)?.toIntOrNull()
@@ -268,10 +268,10 @@ index bedc9cd..7ef7a8f 100644
      fun reconnect() {
 diff --git a/app/src/main/java/com/scrcpy/remote/ui/MonoRelayActivity.kt b/app/src/main/java/com/scrcpy/remote/ui/MonoRelayActivity.kt
 new file mode 100644
-index 0000000..04f318c
+index 0000000..f360c59
 --- /dev/null
 +++ b/app/src/main/java/com/scrcpy/remote/ui/MonoRelayActivity.kt
-@@ -0,0 +1,417 @@
+@@ -0,0 +1,533 @@
 +package com.scrcpy.remote.ui
 +
 +import android.content.Context
@@ -284,57 +284,82 @@ index 0000000..04f318c
 +import androidx.activity.ComponentActivity
 +import androidx.activity.compose.BackHandler
 +import androidx.activity.compose.setContent
++import androidx.activity.enableEdgeToEdge
 +import androidx.activity.viewModels
++import androidx.compose.foundation.BorderStroke
++import androidx.compose.foundation.Image
 +import androidx.compose.foundation.background
++import androidx.compose.foundation.clickable
 +import androidx.compose.foundation.isSystemInDarkTheme
-+import androidx.compose.foundation.rememberScrollState
-+import androidx.compose.foundation.verticalScroll
 +import androidx.compose.foundation.layout.Arrangement
++import androidx.compose.foundation.layout.Box
 +import androidx.compose.foundation.layout.BoxWithConstraints
 +import androidx.compose.foundation.layout.Column
 +import androidx.compose.foundation.layout.Row
 +import androidx.compose.foundation.layout.aspectRatio
 +import androidx.compose.foundation.layout.fillMaxSize
 +import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.heightIn
 +import androidx.compose.foundation.layout.padding
 +import androidx.compose.foundation.layout.safeDrawingPadding
 +import androidx.compose.foundation.layout.size
 +import androidx.compose.foundation.layout.width
++import androidx.compose.foundation.layout.widthIn
++import androidx.compose.foundation.rememberScrollState
++import androidx.compose.foundation.selection.selectable
++import androidx.compose.foundation.selection.selectableGroup
++import androidx.compose.foundation.shape.CircleShape
++import androidx.compose.foundation.shape.RoundedCornerShape
 +import androidx.compose.foundation.text.KeyboardActions
 +import androidx.compose.foundation.text.KeyboardOptions
++import androidx.compose.foundation.verticalScroll
 +import androidx.compose.material3.Button
++import androidx.compose.material3.ButtonDefaults
 +import androidx.compose.material3.CircularProgressIndicator
++import androidx.compose.material3.HorizontalDivider
 +import androidx.compose.material3.MaterialTheme
 +import androidx.compose.material3.OutlinedTextField
-+import androidx.compose.material3.SegmentedButton
-+import androidx.compose.material3.SegmentedButtonDefaults
-+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 +import androidx.compose.material3.Surface
 +import androidx.compose.material3.Text
 +import androidx.compose.material3.TextButton
 +import androidx.compose.material3.darkColorScheme
 +import androidx.compose.material3.lightColorScheme
 +import androidx.compose.runtime.Composable
++import androidx.compose.runtime.DisposableEffect
 +import androidx.compose.runtime.LaunchedEffect
 +import androidx.compose.runtime.collectAsState
 +import androidx.compose.runtime.getValue
 +import androidx.compose.runtime.mutableStateOf
++import androidx.compose.runtime.remember
 +import androidx.compose.runtime.setValue
 +import androidx.compose.ui.Alignment
 +import androidx.compose.ui.Modifier
++import androidx.compose.ui.draw.clip
 +import androidx.compose.ui.graphics.Color
++import androidx.compose.ui.platform.LocalDensity
 +import androidx.compose.ui.platform.LocalFocusManager
 +import androidx.compose.ui.platform.LocalUriHandler
++import androidx.compose.ui.res.painterResource
 +import androidx.compose.ui.semantics.LiveRegionMode
++import androidx.compose.ui.semantics.Role
++import androidx.compose.ui.semantics.contentDescription
++import androidx.compose.ui.semantics.heading
 +import androidx.compose.ui.semantics.liveRegion
 +import androidx.compose.ui.semantics.semantics
++import androidx.compose.ui.text.font.FontWeight
 +import androidx.compose.ui.text.input.ImeAction
 +import androidx.compose.ui.text.input.KeyboardType
++import androidx.compose.ui.text.style.TextAlign
 +import androidx.compose.ui.unit.dp
++import androidx.compose.ui.unit.sp
 +import androidx.compose.ui.viewinterop.AndroidView
++import androidx.core.view.WindowCompat
++import androidx.core.view.WindowInsetsCompat
++import androidx.core.view.WindowInsetsControllerCompat
 +import androidx.lifecycle.Lifecycle
 +import androidx.lifecycle.lifecycleScope
 +import androidx.lifecycle.repeatOnLifecycle
++import com.scrcpy.remote.R
 +import com.scrcpy.remote.data.MirrorSettings
 +import com.scrcpy.remote.scrcpy.AudioSource
 +import com.scrcpy.remote.session.CheckupStage
@@ -355,6 +380,8 @@ index 0000000..04f318c
 +import kotlinx.coroutines.launch
 +import kotlinx.coroutines.suspendCancellableCoroutine
 +import kotlinx.coroutines.withTimeoutOrNull
++
++private val RelayBlue = Color(0xFF0861D6)
 +
 +class MonoRelayActivity : ComponentActivity() {
 +    private data class Address(val ip: String, val port: Int)
@@ -384,9 +411,15 @@ index 0000000..04f318c
 +        selected = preferences.getString("preset", AUTO_QUALITY) ?: AUTO_QUALITY
 +        address = preferences.getString("address", "") ?: ""
 +        resumeOnOpen = savedInstanceState?.getBoolean("resume_stream") ?: true
++        enableEdgeToEdge()
 +        setContent {
-+            val palette = if (isSystemInDarkTheme()) darkColorScheme(primary = Color(0xFF8DBBFF))
-+                else lightColorScheme(primary = Color(0xFF0969DA))
++            val palette = if (isSystemInDarkTheme()) darkColorScheme(
++                primary = Color(0xFF90BEFF), surface = Color(0xFF181A20), surfaceVariant = Color(0xFF252932),
++                outlineVariant = Color(0xFF3B414D), onSurfaceVariant = Color(0xFFD1D7E3),
++            ) else lightColorScheme(
++                primary = RelayBlue, surface = Color(0xFFFCFCFD), surfaceVariant = Color(0xFFF1F4F9),
++                outlineVariant = Color(0xFFD9E0EA), onSurfaceVariant = Color(0xFF515C6B),
++            )
 +            MaterialTheme(colorScheme = palette) {
 +                Surface(Modifier.fillMaxSize()) { Home() }
 +            }
@@ -418,80 +451,136 @@ index 0000000..04f318c
 +        val checkup by viewModel.checkup.collectAsState()
 +        val connected = state as? MirrorUiState.Connected
 +        val connecting = state is MirrorUiState.Connecting
-+        val active = searching || connecting || connected != null
++        val immersive = connected != null
++        val active = searching || connecting || immersive
 +        val failed = searchFailed || state is MirrorUiState.Failed
-+        val uriHandler = LocalUriHandler.current
++        var menuVisible by remember(immersive) { mutableStateOf(false) }
 +        BackHandler(enabled = active || showAddress) {
-+            if (showAddress) showAddress = false else stopStream()
++            when {
++                menuVisible -> menuVisible = false
++                showAddress -> showAddress = false
++                else -> stopStream()
++            }
 +        }
 +        LaunchedEffect(active) {
 +            val flag = WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
 +            if (active) window.addFlags(flag) else window.clearFlags(flag)
 +        }
-+
-+        val scroll = if (!active && showAddress) Modifier.verticalScroll(rememberScrollState()) else Modifier
-+        Column(
-+            Modifier.fillMaxSize().safeDrawingPadding().then(scroll).padding(16.dp),
-+            verticalArrangement = Arrangement.spacedBy(10.dp),
-+        ) {
-+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
-+                verticalAlignment = Alignment.CenterVertically) {
-+                Text("MonoRelay", style = MaterialTheme.typography.titleLarge)
-+                if (active) {
-+                    TextButton(onClick = ::stopStream) { Text("Стоп") }
-+                } else {
-+                    Button(onClick = { connect() }) { Text(if (failed) "Повторить" else "Подключить") }
-+                }
++        DisposableEffect(immersive) {
++            val controller = WindowCompat.getInsetsController(window, window.decorView)
++            if (immersive) {
++                controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
++                controller.hide(WindowInsetsCompat.Type.systemBars())
 +            }
++            onDispose { if (immersive) controller.show(WindowInsetsCompat.Type.systemBars()) }
++        }
 +
-+            Surface(
-+                modifier = Modifier.fillMaxWidth().semantics { liveRegion = LiveRegionMode.Polite },
-+                shape = MaterialTheme.shapes.small,
-+                color = MaterialTheme.colorScheme.surfaceVariant,
-+            ) {
-+                Column(Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
-+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-+                        if (searching || connecting) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
-+                        Text(statusText(state, checkup), style = MaterialTheme.typography.bodyMedium,
-+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-+                    }
-+                    if (failed) {
-+                        TextButton(onClick = {
-+                            uriHandler.openUri("https://github.com/CHXZAVARKA/MonoRelay/blob/main/SETUP.md")
-+                        }) { Text("Как подключить") }
-+                    }
-+                }
-+            }
-+
-+            if (connecting || connected != null) {
-+                // Keep the decoder's target ready while authenticating, then give the video the
-+                // available space once the server has reported its frame dimensions.
-+                val videoSize = if (connected != null) Modifier.weight(1f).fillMaxWidth() else Modifier.size(1.dp)
++        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
++            if (connecting || immersive) {
++                // Keep the decoder's surface in place from the connection handshake to fullscreen.
++                val videoSize = if (immersive) Modifier.fillMaxSize() else Modifier.size(1.dp)
 +                Video(connected, videoSize)
 +            }
-+            Quality(available = !connecting)
-+            if (!active) {
-+                if (showAddress) ManualAddress()
-+                else if (failed) TextButton(onClick = { showAddress = true }) { Text("Ввести IP") }
++            if (immersive) {
++                Box(Modifier.matchParentSize().semantics { contentDescription = "Quest stream" }.clickable(
++                    indication = null, interactionSource = null,
++                    onClickLabel = if (menuVisible) "Hide stream controls" else "Show stream controls",
++                ) { menuVisible = !menuVisible })
++                if (menuVisible) {
++                    Surface(
++                        modifier = Modifier.align(Alignment.BottomCenter).safeDrawingPadding().padding(16.dp)
++                            .widthIn(max = 440.dp).fillMaxWidth(),
++                        shape = RoundedCornerShape(16.dp),
++                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
++                        shadowElevation = 6.dp,
++                    ) {
++                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
++                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
++                                verticalAlignment = Alignment.CenterVertically) {
++                                ConnectionStatus(statusText(state, checkup), busy = false, streaming = true)
++                                TextButton(onClick = ::stopStream) { Text("Stop") }
++                            }
++                            Quality(available = true, compact = true)
++                        }
++                    }
++                }
++            } else {
++                Launcher(state, checkup, active = active, connecting = connecting, failed = failed)
 +            }
 +        }
 +    }
 +
++    @Composable
++    private fun Launcher(
++        state: MirrorUiState, checkup: ConnectionCheckup?, active: Boolean, connecting: Boolean, failed: Boolean,
++    ) {
++        val uriHandler = LocalUriHandler.current
++        Column(
++            Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(24.dp),
++            horizontalAlignment = Alignment.CenterHorizontally,
++        ) {
++            Column(Modifier.widthIn(max = 420.dp).fillMaxWidth().padding(top = 16.dp, bottom = 16.dp),
++                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(24.dp)) {
++                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
++                    Image(painterResource(R.drawable.ic_monorelay), contentDescription = null, modifier = Modifier.size(80.dp))
++                    Text("MonoRelay", fontSize = 34.sp, fontWeight = FontWeight.SemiBold,
++                        modifier = Modifier.semantics { heading() })
++                }
++                Column(horizontalAlignment = Alignment.CenterHorizontally) {
++                    ConnectionStatus(statusText(state, checkup), busy = searching || connecting, streaming = false)
++                    if (failed) {
++                        TextButton(onClick = {
++                            uriHandler.openUri("https://github.com/CHXZAVARKA/MonoRelay/blob/main/SETUP.md")
++                        }) { Text("Setup guide") }
++                    }
++                }
++                Quality(available = !connecting, compact = false)
++                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
++                if (showAddress) {
++                    ManualAddress()
++                } else {
++                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
++                        Button(
++                            onClick = { if (active) stopStream() else connect() },
++                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
++                            shape = RoundedCornerShape(12.dp),
++                            colors = ButtonDefaults.buttonColors(containerColor = RelayBlue, contentColor = Color.White),
++                        ) { Text(if (active) "Stop" else if (failed) "Retry" else "Connect") }
++                        if (failed) TextButton(onClick = { showAddress = true }) { Text("Enter IP") }
++                    }
++                }
++            }
++        }
++    }
++
++    @Composable
++    private fun ConnectionStatus(text: String, busy: Boolean, streaming: Boolean) {
++        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically,
++            modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite }) {
++            if (busy) CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
++            else Box(Modifier.size(8.dp).background(
++                if (streaming) Color(0xFF25A462) else MaterialTheme.colorScheme.primary, CircleShape,
++            ))
++            Text(text, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
++        }
++    }
++
 +    private fun statusText(state: MirrorUiState, checkup: ConnectionCheckup?): String = when {
-+        checkup?.failedStage == CheckupStage.AUTHORIZE -> "Разреши отладку в очках и нажми «Повторить»."
++        checkup?.failedStage == CheckupStage.AUTHORIZE -> "Approve debugging in the headset, then tap Retry."
 +        checkup?.steps?.any {
 +            it.stage == CheckupStage.AUTHORIZE && it.status == StageStatus.RUNNING
-+        } == true -> "Подтверди в очках"
-+        searching -> "Ищем Quest…"
++        } == true -> "Confirm in the headset"
++        searching -> "Looking for Quest…"
 +        state is MirrorUiState.Connected && checkup?.steps?.any {
 +            it.stage == CheckupStage.MEDIA && it.status == StageStatus.PASSED
-+        } == true -> "Трансляция идёт"
-+        state is MirrorUiState.Connected || state is MirrorUiState.Connecting -> "Подключаемся к Quest…"
++        } == true -> "Streaming"
++        state is MirrorUiState.Connected -> "Waiting for video…"
++        state is MirrorUiState.Connecting -> "Connecting to Quest…"
 +        searchFailed && !preferences.contains("serial") ->
-+            "Первый запуск. Подключи Quest к компьютеру по USB и включи ADB по Wi-Fi."
-+        searchFailed -> "Quest не найден. Проверь Wi-Fi и отладку."
-+        state is MirrorUiState.Failed -> "Не удалось подключиться к Quest"
-+        else -> "Готово к подключению"
++            "Connect Quest to a computer by USB and enable ADB over Wi-Fi."
++        searchFailed -> "Quest not found. Check Wi-Fi and ADB over Wi-Fi."
++        state is MirrorUiState.Failed -> "Could not connect to Quest"
++        else -> "Ready to connect"
 +    }
 +
 +    @Composable
@@ -517,24 +606,44 @@ index 0000000..04f318c
 +    }
 +
 +    @Composable
-+    private fun Quality(available: Boolean) {
-+        val choices = listOf(AUTO_QUALITY to "Авто") + presets.map { it.id to it.label }
++    private fun Quality(available: Boolean, compact: Boolean) {
++        val choices = listOf(AUTO_QUALITY to "Auto") + presets.map { it.id to it.label }
++        val scheme = MaterialTheme.colorScheme
 +        BoxWithConstraints(Modifier.fillMaxWidth()) {
-+            val rows = if (maxWidth < 306.dp) choices.chunked(2) else listOf(choices)
-+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-+                rows.forEach { row ->
-+                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-+                        row.forEachIndexed { index, (id, label) ->
-+                            SegmentedButton(
-+                                selected = selected == id,
-+                                onClick = { chooseQuality(id) },
-+                                enabled = available,
-+                                shape = SegmentedButtonDefaults.itemShape(index = index, count = row.size),
-+                                icon = {},
-+                                label = { Text(label, maxLines = 1) },
-+                            )
++            val rows = if (compact && maxWidth >= 320.dp * LocalDensity.current.fontScale) {
++                listOf(choices)
++            } else choices.chunked(2)
++            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
++                Surface(
++                    modifier = Modifier.fillMaxWidth().selectableGroup(),
++                    shape = RoundedCornerShape(12.dp),
++                    color = scheme.surfaceVariant,
++                    border = BorderStroke(1.dp, scheme.outlineVariant),
++                ) {
++                    Column(Modifier.padding(3.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
++                        rows.forEach { row ->
++                            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
++                                row.forEach { (id, label) ->
++                                    val checked = selected == id
++                                    Box(
++                                        Modifier.weight(1f).heightIn(min = 48.dp).clip(RoundedCornerShape(9.dp))
++                                            .background(if (checked) RelayBlue else Color.Transparent)
++                                            .selectable(selected = checked, enabled = available, role = Role.RadioButton,
++                                                onClick = { chooseQuality(id) }),
++                                        contentAlignment = Alignment.Center,
++                                    ) {
++                                        Text(label, maxLines = 1, fontWeight = if (checked) FontWeight.SemiBold else FontWeight.Medium,
++                                            color = if (checked) Color.White else scheme.onSurfaceVariant)
++                                    }
++                                }
++                            }
 +                        }
 +                    }
++                }
++                if (!compact) {
++                    Text(presets.firstOrNull { it.id == selected }?.detail ?: "Adjusts quality as you watch",
++                        style = MaterialTheme.typography.bodyMedium, color = scheme.onSurfaceVariant,
++                        textAlign = TextAlign.Center)
 +                }
 +            }
 +        }
@@ -550,12 +659,19 @@ index 0000000..04f318c
 +                connect(endpoint)
 +            }
 +        }
-+        OutlinedTextField(address, { address = it }, label = { Text("IP Quest") },
-+            placeholder = { Text("192.168.1.42") }, singleLine = true,
-+            isError = address.isNotBlank() && endpoint == null,
-+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go),
-+            keyboardActions = KeyboardActions(onGo = { submit() }), modifier = Modifier.fillMaxWidth())
-+        TextButton(enabled = endpoint != null, onClick = { submit() }) { Text("Подключить по IP") }
++        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
++            OutlinedTextField(address, { address = it }, label = { Text("Quest IP address") }, singleLine = true,
++                shape = RoundedCornerShape(12.dp), isError = address.isNotBlank() && endpoint == null,
++                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go),
++                keyboardActions = KeyboardActions(onGo = { submit() }), modifier = Modifier.fillMaxWidth())
++            Button(enabled = endpoint != null, onClick = { submit() }, modifier = Modifier.fillMaxWidth(),
++                shape = RoundedCornerShape(12.dp),
++                colors = ButtonDefaults.buttonColors(containerColor = RelayBlue, contentColor = Color.White),
++            ) { Text("Connect") }
++            TextButton(onClick = { showAddress = false }, modifier = Modifier.align(Alignment.CenterHorizontally)) {
++                Text("Cancel")
++            }
++        }
 +    }
 +
 +    private fun chooseQuality(id: String) {
@@ -691,10 +807,10 @@ index 0000000..04f318c
 +}
 diff --git a/app/src/main/java/com/scrcpy/remote/ui/MonoRelayQuality.kt b/app/src/main/java/com/scrcpy/remote/ui/MonoRelayQuality.kt
 new file mode 100644
-index 0000000..eed5061
+index 0000000..380c2b2
 --- /dev/null
 +++ b/app/src/main/java/com/scrcpy/remote/ui/MonoRelayQuality.kt
-@@ -0,0 +1,65 @@
+@@ -0,0 +1,67 @@
 +package com.scrcpy.remote.ui
 +
 +import android.content.Context
@@ -706,6 +822,7 @@ index 0000000..eed5061
 +internal data class MonoRelayPreset(
 +    val id: String,
 +    val label: String,
++    val detail: String,
 +    val maxSize: Int,
 +    val fps: Int,
 +    val bitrate: Int,
@@ -724,7 +841,8 @@ index 0000000..eed5061
 +            val data = JSONArray(context.assets.open("stream-presets.json").bufferedReader().use { it.readText() })
 +            return (0 until data.length()).map { index ->
 +                val item = data.getJSONObject(index)
-+                MonoRelayPreset(item.getString("id"), item.getString("title"), item.getInt("maxSize"),
++                MonoRelayPreset(item.getString("id"), item.getString("title"), item.getString("detail"),
++                    item.getInt("maxSize"),
 +                    item.getInt("fps"), item.getInt("bitRateMbps"), item.getInt("audioBufferMs"))
 +            }
 +        }
@@ -762,14 +880,22 @@ index 0000000..eed5061
 +}
 diff --git a/app/src/main/res/drawable/ic_monorelay.xml b/app/src/main/res/drawable/ic_monorelay.xml
 new file mode 100644
-index 0000000..959cd31
+index 0000000..de4667b
 --- /dev/null
 +++ b/app/src/main/res/drawable/ic_monorelay.xml
-@@ -0,0 +1,7 @@
+@@ -0,0 +1,15 @@
 +<vector xmlns:android="http://schemas.android.com/apk/res/android"
-+    android:width="108dp" android:height="108dp" android:viewportWidth="108" android:viewportHeight="108">
-+    <path android:fillColor="#34459D" android:pathData="M25,8H83Q100,8 100,25V83Q100,100 83,100H25Q8,100 8,83V25Q8,8 25,8Z"/>
-+    <path android:fillColor="#00000000" android:strokeColor="#FFFFFF" android:strokeWidth="4"
-+        android:pathData="M36,39H72Q81,39 81,48V60Q81,69 72,69H36Q27,69 27,60V48Q27,39 36,39Z"/>
-+    <path android:fillColor="#FFFFFF" android:pathData="M54,49A5,5 0,1 0,54 59A5,5 0,1 0,54 49Z"/>
++    xmlns:aapt="http://schemas.android.com/aapt"
++    android:width="108dp" android:height="108dp" android:viewportWidth="1024" android:viewportHeight="1024">
++    <path android:pathData="M294,108H730Q916,108 916,294V730Q916,916 730,916H294Q108,916 108,730V294Q108,108 294,108Z">
++        <aapt:attr name="android:fillColor">
++            <gradient android:startX="334" android:startY="916" android:endX="690" android:endY="108"
++                android:startColor="#24387D" android:endColor="#4F63BF" android:type="linear" />
++        </aapt:attr>
++    </path>
++    <path android:fillColor="#00000000" android:strokeColor="#FFFFFF" android:strokeWidth="31"
++        android:pathData="M364,374H660Q764,374 764,478V549Q764,653 660,653H364Q260,653 260,549V478Q260,374 364,374Z" />
++    <path android:fillColor="#3BFFFFFF"
++        android:pathData="M377,447H640Q684,447 684,491V536Q684,580 640,580H377Q333,580 333,536V491Q333,447 377,447Z" />
++    <path android:fillColor="#FFFFFF" android:pathData="M509,470A43,43 0,1 0,509 556A43,43 0,1 0,509 470Z" />
 +</vector>

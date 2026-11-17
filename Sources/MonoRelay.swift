@@ -4,6 +4,7 @@ import SwiftUI
 struct StreamPreset: Decodable, Identifiable {
     let id: String
     let title: String
+    let detail: String
     let maxSize: Int
     let fps: Int
     let bitRateMbps: Int
@@ -79,7 +80,7 @@ final class Session: ObservableObject {
     private func connect(manual: Endpoint? = nil, canReconnect: Bool = true) {
         stop()
         guard let tools = Toolchain.find() else {
-            phase = .failed("Установи scrcpy и Android Platform Tools, затем попробуй снова.")
+            phase = .failed("Install scrcpy and Android Platform Tools, then retry.")
             return
         }
         let id = runID
@@ -123,14 +124,14 @@ final class Session: ObservableObject {
 
     private func launchPlayer(_ headset: Headset, tools: Toolchain, id: UUID, canReconnect: Bool) {
         guard let preset = activePreset else {
-            phase = .failed("Файл режимов трансляции отсутствует. Переустанови MonoRelay.")
+            phase = .failed("Stream profiles are missing. Reinstall MonoRelay.")
             return
         }
         var arguments = [
             "--serial=\(headset.transport)", "--max-size=\(preset.maxSize)", "--max-fps=\(preset.fps)",
             "--video-bit-rate=\(preset.bitRateMbps)M", "--video-buffer=\(preset.videoBufferMs)",
             "--no-control", "--hwdec=disabled", "--pause-on-exit=false",
-            "--window-title=MonoRelay · Трансляция", "--window-width=880", "--window-height=495",
+            "--window-title=MonoRelay · Stream", "--window-width=880", "--window-height=495",
         ]
         if selectedPreset == AdaptiveQuality.id {
             adaptive.beginStream()
@@ -175,7 +176,7 @@ final class Session: ObservableObject {
             player = process
         } catch {
             output.fileHandleForReading.readabilityHandler = nil
-            phase = .failed("Не удалось запустить scrcpy. Проверь его установку.")
+            phase = .failed("Could not start scrcpy. Check your installation.")
         }
     }
 
@@ -219,8 +220,8 @@ final class Session: ObservableObject {
             stop()
         } else {
             phase = .failed(code == 2
-                ? "Связь с Quest прервалась. Проверь Wi‑Fi и подключись снова."
-                : "Не удалось открыть трансляцию. Проверь, что Quest активен и стоит scrcpy 5.0.1 или новее.")
+                ? "Lost the connection to Quest. Check Wi-Fi and retry."
+                : "Could not start the stream. Keep Quest awake and check that scrcpy 5.0.1 or later is installed.")
         }
     }
 }
@@ -281,75 +282,125 @@ struct HomeView: View {
     @State private var enteringAddress = false
     @State private var address = ""
     @FocusState private var addressFocused: Bool
+    @Environment(\.colorScheme) private var colorScheme
+
+    private let accent = Color(red: 0.03, green: 0.38, blue: 0.84)
+    private var surface: Color {
+        colorScheme == .dark ? Color(red: 0.094, green: 0.102, blue: 0.125) : Color(red: 0.988, green: 0.988, blue: 0.992)
+    }
+    private var controlFill: Color {
+        colorScheme == .dark ? .white.opacity(0.07) : Color(red: 0.945, green: 0.953, blue: 0.97)
+    }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Трансляция Quest")
-                .font(.title2.bold())
-                .accessibilityAddTraits(.isHeader)
+        VStack(spacing: 24) {
+            VStack(spacing: 8) {
+                Image(nsImage: NSApp.applicationIconImage)
+                    .resizable().interpolation(.high).frame(width: 80, height: 80)
+                    .accessibilityHidden(true)
+                Text("MonoRelay")
+                    .font(.system(size: 34, weight: .semibold))
+                    .accessibilityAddTraits(.isHeader)
+            }
+            status
+            VStack(spacing: 8) {
+                HStack(spacing: 2) {
+                    segment("Auto", id: AdaptiveQuality.id)
+                    ForEach(StreamPreset.catalog) { preset in
+                        segment(preset.title, id: preset.id)
+                    }
+                }
+                .padding(3)
+                .background(controlFill, in: RoundedRectangle(cornerRadius: 12))
+                .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(.primary.opacity(0.10)))
+                .accessibilityElement(children: .contain)
+                .accessibilityLabel("Stream quality")
+                Text(qualityDetail)
+                    .font(.callout).foregroundStyle(.secondary)
+            }
+            Divider()
+            connectionActions
+        }
+        .padding(28)
+        .frame(width: 460)
+        .background(surface)
+    }
 
+    private var status: some View {
+        VStack(spacing: 6) {
             HStack(spacing: 8) {
                 if isBusy {
                     ProgressView().controlSize(.small).accessibilityHidden(true)
                 } else {
-                    Image(systemName: session.phase == .streaming ? "checkmark.circle.fill" : "wifi")
-                        .foregroundStyle(session.phase == .streaming ? Color.green : Color.secondary)
+                    Circle()
+                        .fill(session.phase == .streaming ? Color.green : (failed ? accent : Color.secondary))
+                        .frame(width: 8, height: 8)
                         .accessibilityHidden(true)
                 }
-                VStack(alignment: .leading, spacing: 4) {
-                    Text(statusText).fixedSize(horizontal: false, vertical: true)
-                    if case .setup(let step) = session.phase {
-                        Text(step.instruction).font(.callout).foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    if failed {
-                        Link("Как подключить", destination: URL(string: "https://github.com/CHXZAVARKA/MonoRelay/blob/main/SETUP.md")!)
-                            .font(.callout)
-                    }
-                }
+                Text(statusText)
+                    .font(.system(size: 15, weight: .medium))
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .padding(10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.quaternary, in: RoundedRectangle(cornerRadius: 8))
-            .accessibilityElement(children: .combine)
-
-            Picker("Качество", selection: Binding(
-                get: { session.selectedPreset }, set: { session.selectPreset($0) }
-            )) {
-                Text("Авто").tag(AdaptiveQuality.id)
-                ForEach(StreamPreset.catalog) { preset in
-                    Text(preset.title).tag(preset.id)
-                }
+            if case .setup(let step) = session.phase {
+                Text(step.instruction).font(.callout).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .labelsHidden()
-            .pickerStyle(.segmented)
-
-            if enteringAddress {
-                TextField("IP Quest", text: $address, prompt: Text("192.168.1.42"))
-                    .textFieldStyle(.roundedBorder)
-                    .focused($addressFocused)
-            }
-
-            HStack {
-                if failed {
-                    Button(enteringAddress ? "Скрыть IP" : "Ввести IP") {
-                        enteringAddress.toggle()
-                        addressFocused = enteringAddress
-                    }
-                }
-                Spacer()
-                if isBusy || session.phase == .streaming {
-                    Button("Стоп") { session.stop() }.keyboardShortcut(.cancelAction)
-                } else {
-                    Button(failed && !enteringAddress ? "Повторить" : "Подключить", action: connect)
-                        .keyboardShortcut(.defaultAction)
-                        .buttonStyle(.borderedProminent)
-                        .disabled(enteringAddress && Endpoint(address) == nil)
-                }
+            if failed {
+                Link("Setup guide", destination: URL(string: "https://github.com/CHXZAVARKA/MonoRelay/blob/main/SETUP.md")!)
+                    .font(.callout)
             }
         }
-        .padding(24)
-        .frame(width: 420)
+        .frame(maxWidth: .infinity)
+        .multilineTextAlignment(.center)
+    }
+
+    private func segment(_ title: String, id: String) -> some View {
+        let selected = session.selectedPreset == id
+        return Button {
+            session.selectPreset(id)
+        } label: {
+            Text(title)
+                .font(.system(size: 13, weight: selected ? .semibold : .medium))
+                .frame(maxWidth: .infinity, minHeight: 32)
+        }
+        .buttonStyle(RelayButtonStyle(fill: selected ? accent : .clear, filled: selected, radius: 9))
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private var qualityDetail: String {
+        StreamPreset.catalog.first { $0.id == session.selectedPreset }?.detail ?? "Adjusts quality as you watch"
+    }
+
+    private var connectionActions: some View {
+        HStack(spacing: 12) {
+            if enteringAddress {
+                TextField("Quest IP address", text: $address, prompt: Text("Quest IP address"))
+                    .textFieldStyle(.plain)
+                    .padding(.horizontal, 12).frame(height: 36)
+                    .background(controlFill, in: RoundedRectangle(cornerRadius: 10))
+                    .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.primary.opacity(0.12)))
+                    .focused($addressFocused)
+                Button("Cancel") { enteringAddress = false }
+                    .keyboardShortcut(.cancelAction)
+            } else if failed {
+                Button("Enter IP") {
+                    enteringAddress = true
+                    addressFocused = true
+                }
+                .buttonStyle(RelayButtonStyle(fill: controlFill, filled: false, radius: 10))
+            }
+            Spacer(minLength: 0)
+            if isBusy || session.phase == .streaming {
+                Button("Stop") { session.stop() }
+                    .keyboardShortcut(.cancelAction)
+                    .buttonStyle(RelayButtonStyle(fill: controlFill, filled: false, radius: 10))
+            } else {
+                Button(failed && !enteringAddress ? "Retry" : "Connect", action: connect)
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(RelayButtonStyle(fill: accent, filled: true, radius: 10))
+                    .disabled(enteringAddress && Endpoint(address) == nil)
+            }
+        }
     }
 
     private func connect() {
@@ -370,12 +421,30 @@ struct HomeView: View {
 
     private var statusText: String {
         switch session.phase {
-        case .idle: "Готово к подключению"
-        case .searching: "Ищем Quest…"
-        case .starting: "Ждём видео…"
-        case .streaming: "Трансляция идёт"
+        case .idle: "Ready to connect"
+        case .searching: "Looking for Quest…"
+        case .starting: "Waiting for video…"
+        case .streaming: "Streaming"
         case .setup(let step): step.title
         case .failed(let message): message
         }
+    }
+}
+
+private struct RelayButtonStyle: ButtonStyle {
+    var fill: Color
+    var filled: Bool
+    var radius: CGFloat
+    @Environment(\.isEnabled) private var enabled
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 13, weight: .semibold))
+            .padding(.horizontal, 14)
+            .frame(minHeight: radius == 9 ? 32 : 36)
+            .foregroundStyle(filled ? Color.white : Color.primary)
+            .background(fill, in: RoundedRectangle(cornerRadius: radius))
+            .contentShape(RoundedRectangle(cornerRadius: radius))
+            .opacity(!enabled ? 0.48 : configuration.isPressed ? 0.76 : 1)
     }
 }

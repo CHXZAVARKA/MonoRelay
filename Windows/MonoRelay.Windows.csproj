@@ -8,13 +8,14 @@
     <Nullable>enable</Nullable>
     <AssemblyName>MonoRelay</AssemblyName>
     <ApplicationIcon>MonoRelay.ico</ApplicationIcon>
-    <Version>0.4.5</Version>
+    <Version>1.0.0</Version>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
     <DebugType>none</DebugType>
     <DebugSymbols>false</DebugSymbols>
   </PropertyGroup>
   <ItemGroup>
+    <EmbeddedResource Include="MonoRelay.ico" LogicalName="MonoRelay.ico" />
     <EmbeddedResource Include="../Resources/stream-presets.json" LogicalName="stream-presets.json" />
   </ItemGroup>
 </Project>

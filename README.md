@@ -8,7 +8,7 @@ Download a build from [Releases](https://github.com/CHXZAVARKA/MonoRelay/release
 
 - macOS 14+. [Install `scrcpy` and `adb`](BUILD.md#macos), then open `MonoRelay.app`. The ZIP is for Apple Silicon and is signed ad hoc. If macOS blocks the downloaded app, build it locally.
 - Windows. Use x64 for Intel and AMD PCs or ARM64 for ARM PCs. Extract the entire ZIP and open `MonoRelay.exe`.
-- Android 8+. Install the preview APK on your phone or tablet. See the [Android guide](Android/README.md).
+- Android 8+. Install the APK on your phone or tablet. See the [Android guide](Android/README.md).
 
 ## Connect a Quest
 
@@ -16,15 +16,15 @@ Download a build from [Releases](https://github.com/CHXZAVARKA/MonoRelay/release
 
 ## Quality
 
-Choose a profile in the main window. The phone shows the video on that same screen. On desktop, the video opens in its own window. Applying a different profile briefly reconnects the stream.
+Choose a profile in the main window. On desktop, the video opens in its own window. On Android, video fills the screen. Tap the video to show or hide quality controls and Stop. Applying a different profile briefly reconnects the stream.
 
 | Profile in the app | Max. long edge | Max. FPS | Video bitrate | Desktop video buffer | Audio buffer |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Speed (`Скорость`) | 1280 px | 30 | 5 Mbps | 0 ms | 50 ms |
-| Balanced (`Баланс`) | 1600 px | 30 | 8 Mbps | 30 ms | 80 ms |
-| Quality (`Качество`) | 1920 px | 60 | 16 Mbps | 60 ms | 120 ms |
+| Speed | 1280 px | 30 | 5 Mbps | 0 ms | 50 ms |
+| Balanced | 1600 px | 30 | 8 Mbps | 30 ms | 80 ms |
+| Quality | 1920 px | 60 | 16 Mbps | 60 ms | 120 ms |
 
-Auto (`Авто`) starts at Balanced. It lowers quality after repeated frame skips and may try a higher setting once after 45 seconds of steady, active video. It adjusts while the player is in the foreground.
+Auto starts at Balanced. It lowers quality after repeated frame skips and may try a higher setting once after 45 seconds of steady, active video. It adjusts while the player is in the foreground.
 
 The connection and one-eye crop were tested on a Quest 3S. The crop may differ on other headsets.
 
