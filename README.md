@@ -24,7 +24,7 @@ Choose a profile in the main window. Applying a different profile briefly reconn
 
 | Profile in the app | Max. long edge | Max. FPS | Video bitrate | Desktop video buffer | Audio buffer |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Low latency (`Задержка`) | 1280 px | 30 | 5 Mbps | 0 ms | 50 ms |
+| Speed (`Скорость`) | 1280 px | 30 | 5 Mbps | 0 ms | 50 ms |
 | Balanced (`Баланс`) | 1600 px | 30 | 8 Mbps | 30 ms | 80 ms |
 | Quality (`Качество`) | 1920 px | 60 | 16 Mbps | 60 ms | 120 ms |
 

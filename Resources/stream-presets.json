@@ -1,5 +1,5 @@
 [
-  {"id":"speed","title":"Задержка","maxSize":1280,"fps":30,"bitRateMbps":5,"videoBufferMs":0,"audioBufferMs":50},
-  {"id":"balance","title":"Баланс","maxSize":1600,"fps":30,"bitRateMbps":8,"videoBufferMs":30,"audioBufferMs":80},
-  {"id":"quality","title":"Качество","maxSize":1920,"fps":60,"bitRateMbps":16,"videoBufferMs":60,"audioBufferMs":120}
+  {"id":"speed","title":"Скорость","maxSize":1280,"fps":30,"bitRateMbps":5,"videoBufferMs":0,"audioBufferMs":50,"caption":"Быстрый отклик"},
+  {"id":"balance","title":"Баланс","maxSize":1600,"fps":30,"bitRateMbps":8,"videoBufferMs":30,"audioBufferMs":80,"caption":"Для обычного просмотра"},
+  {"id":"quality","title":"Качество","maxSize":1920,"fps":60,"bitRateMbps":16,"videoBufferMs":60,"audioBufferMs":120,"caption":"Больше деталей"}
 ]

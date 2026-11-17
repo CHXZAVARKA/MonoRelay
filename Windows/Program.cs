@@ -7,10 +7,7 @@ using System.Text.Json;
 namespace MonoRelay.Windows;
 
 internal sealed record Preset(string Id, string Title, int MaxSize, int Fps, int BitRateMbps,
-                              int VideoBufferMs, int AudioBufferMs)
-{
-    internal string Detail => $"{MaxSize} px · до {Fps} FPS · {BitRateMbps} Мбит/с";
-}
+                              int VideoBufferMs, int AudioBufferMs, string Caption);
 
 internal sealed record Preferences(string Preset = AdaptiveQuality.Id, string? Serial = null, string[]? Addresses = null)
 {
@@ -137,7 +134,7 @@ internal sealed class RelayForm : Form
             if (player.MainWindowHandle == IntPtr.Zero) return;
             sawWindow = true;
             UpdateQualityDetail();
-            ShowState("Трансляция запущена", "Изображение открыто в отдельном окне.", "Остановить", false);
+            ShowState("Трансляция идёт", "Изображение открыто в отдельном окне.", "Остановить", false);
             frame.Stop();
         };
         Shown += async (_, _) => await Start();
@@ -175,8 +172,8 @@ internal sealed class RelayForm : Form
     private void UpdateQualityDetail()
     {
         var preset = Current;
-        hint.Text = !IsAuto ? preset.Detail
-            : sawWindow ? $"Сейчас {preset.Title.ToLowerInvariant()} · {preset.Detail}" : "Сам подберёт качество";
+        hint.Text = !IsAuto ? preset.Caption
+            : sawWindow ? $"Сейчас: {preset.Title}" : "Подбирает качество";
     }
 
     private void ShowState(string message, string detail, string button, bool canEnterIP)
@@ -263,7 +260,7 @@ internal sealed class RelayForm : Form
         var id = generation;
         using var operation = new CancellationTokenSource();
         pending = operation;
-        ShowState("Ищем Quest в локальной сети…", "Проверяем подключение и сохранённые адреса.", "Отменить", false);
+        ShowState("Ищем Quest…", "Quest должен быть включён.", "Отменить", false);
         try
         {
             var found = await Task.Run(async () => await connection.Find(preferences.Serial,
@@ -346,7 +343,7 @@ internal sealed class RelayForm : Form
         player = process;
         if (automatic) process.BeginOutputReadLine();
         sawWindow = false;
-        ShowState("Ожидаем изображение с Quest…", "Если очки спят, разбуди их.", "Отменить", false);
+        ShowState("Ждём видео…", "Если очки спят, разбуди их.", "Отменить", false);
         frame.Start();
     }
 

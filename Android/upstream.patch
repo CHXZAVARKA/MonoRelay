@@ -1,5 +1,5 @@
 diff --git a/app/build.gradle.kts b/app/build.gradle.kts
-index 6a5a392..fbccf1a 100644
+index 6a5a392..2aadfeb 100644
 --- a/app/build.gradle.kts
 +++ b/app/build.gradle.kts
 @@ -105,11 +105,11 @@ android {
@@ -12,8 +12,8 @@ index 6a5a392..fbccf1a 100644
          targetSdk = 36
 -        versionCode = 86
 -        versionName = "3.5.7"
-+        versionCode = 5
-+        versionName = "0.4.1"
++        versionCode = 6
++        versionName = "0.4.2"
          testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
          buildConfigField("String", "PUBLISHER_NAME", buildConfigString(publisherName))
          buildConfigField("String", "PUBLISHER_EMAIL", buildConfigString(publisherEmail))
@@ -175,8 +175,62 @@ index bedc9cd..7ef7a8f 100644
      internal fun liveFrameStats(): VideoFrameStats? = video?.frameStats()
 
      fun reconnect() {
+diff --git a/app/src/main/java/com/scrcpy/remote/ui/ConnectionStatus.kt b/app/src/main/java/com/scrcpy/remote/ui/ConnectionStatus.kt
+index 8762efd..61866fa 100644
+--- a/app/src/main/java/com/scrcpy/remote/ui/ConnectionStatus.kt
++++ b/app/src/main/java/com/scrcpy/remote/ui/ConnectionStatus.kt
+@@ -56,6 +56,7 @@ internal fun ConnectionStatus(
+     onDismiss: () -> Unit,
+     onRetry: () -> Unit = {},
+     showGenericHint: Boolean = true,
++    simpleAuthorisation: Boolean = false,
+     /** The steps the current or failed attempt got through; null when none was made. */
+     checkup: ConnectionCheckup? = null,
+     /** What a saved device's earlier attempts say about this failure; null when it is not saved. */
+@@ -83,7 +84,8 @@ internal fun ConnectionStatus(
+                         Icon(if (connecting) Icons.Outlined.Phonelink else Icons.Outlined.WifiOff, null,
+                             Modifier.padding(16.dp).size(32.dp), tint = MaterialTheme.colorScheme.onPrimaryContainer)
+                     }
+-                    Text(stringResource(if (connecting) R.string.release_connecting_title else R.string.release_connection_failed),
++                    Text(if (simpleAuthorisation) "Подтверди отладку"
++                        else stringResource(if (connecting) R.string.release_connecting_title else R.string.release_connection_failed),
+                         Modifier.semantics { heading() }, style = MaterialTheme.typography.titleLarge,
+                         textAlign = TextAlign.Center)
+                     if (connecting) CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+@@ -94,19 +96,19 @@ internal fun ConnectionStatus(
+                         modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                     // A message that already says what to do must not be followed by generic
+                     // advice that repeats or contradicts it.
+-                    if (connecting || showGenericHint) {
++                    if (!simpleAuthorisation && (connecting || showGenericHint)) {
+                         Text(stringResource(if (connecting) R.string.release_connecting_help else R.string.release_connection_check),
+                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                             textAlign = TextAlign.Center)
+                     }
+-                    if (checkup != null) ConnectionCheckupSteps(checkup)
++                    if (checkup != null && !simpleAuthorisation) ConnectionCheckupSteps(checkup)
+                     // Only under a failure: while connecting there is nothing yet for it to describe.
+                     if (!connecting && history != null && history.worthShowing) FailureHistoryNote(history)
+                 }
+                 FlowRow(Modifier.fillMaxWidth(),
+                     horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {
+                     if (!connecting) Button(onClick = onRetry, modifier = Modifier.heightIn(min = 48.dp)) {
+-                        Text(stringResource(R.string.reconnect))
++                        Text(if (simpleAuthorisation) "Повторить" else stringResource(R.string.reconnect))
+                     }
+                     if (!connecting && revertLabel != null) {
+                         OutlinedButton(onClick = onRevert, modifier = Modifier.heightIn(min = 48.dp)) {
+@@ -119,7 +121,7 @@ internal fun ConnectionStatus(
+                         }
+                     }
+                     TextButton(onClick = onDismiss, modifier = Modifier.heightIn(min = 48.dp)) {
+-                        Text(stringResource(if (connecting) R.string.cancel else R.string.back_to_devices))
++                        Text(if (simpleAuthorisation) "Назад" else stringResource(if (connecting) R.string.cancel else R.string.back_to_devices))
+                     }
+                 }
+             }
 diff --git a/app/src/main/java/com/scrcpy/remote/ui/MirrorActivity.kt b/app/src/main/java/com/scrcpy/remote/ui/MirrorActivity.kt
-index b07e364..d0b8702 100644
+index b07e364..11494ae 100644
 --- a/app/src/main/java/com/scrcpy/remote/ui/MirrorActivity.kt
 +++ b/app/src/main/java/com/scrcpy/remote/ui/MirrorActivity.kt
 @@ -36,6 +36,7 @@ import kotlinx.coroutines.flow.combine
@@ -187,7 +241,16 @@ index b07e364..d0b8702 100644
  import kotlinx.coroutines.launch
  import kotlinx.coroutines.withContext
  import androidx.compose.foundation.background
-@@ -113,6 +114,7 @@ import com.scrcpy.remote.session.RecordingSound
+@@ -103,6 +104,8 @@ import com.scrcpy.remote.data.effectiveSettings
+ import com.scrcpy.remote.scrcpy.ControlMessage
+ import com.scrcpy.remote.ui.screenshot.ArtefactSharing
+ import com.scrcpy.remote.session.ApkInstall
++import com.scrcpy.remote.session.CheckupStage
++import com.scrcpy.remote.session.StageStatus
+ import com.scrcpy.remote.session.DeviceAppPages
+ import com.scrcpy.remote.session.MirrorSessionService
+ import com.scrcpy.remote.session.MirrorUiState
+@@ -113,6 +116,7 @@ import com.scrcpy.remote.session.RecordingSound
  import com.scrcpy.remote.session.SessionOverrides
  import com.scrcpy.remote.session.SessionDisplay
  import com.scrcpy.remote.session.StreamChoice
@@ -195,7 +258,7 @@ index b07e364..d0b8702 100644
  import com.scrcpy.remote.session.SessionHold
  import com.scrcpy.remote.session.requiresReconnectFrom
 
-@@ -500,7 +502,41 @@ class MirrorActivity : ComponentActivity() {
+@@ -500,7 +504,41 @@ class MirrorActivity : ComponentActivity() {
          // whatever this device would otherwise use, and only for this session: nothing here is
          // written back, so the saved profile is untouched when the session ends.
          val linkRequest = LinkRequest.from(intent)
@@ -238,7 +301,7 @@ index b07e364..d0b8702 100644
          // A recreated recording offer must not revive a session the user explicitly ended.
          if (!exitAfterRecording) {
              viewModel.connect(host, port, settingsFor(initialSettings), allowPortDiscovery = savedDeviceId != null,
-@@ -582,6 +618,7 @@ class MirrorActivity : ComponentActivity() {
+@@ -582,6 +620,7 @@ class MirrorActivity : ComponentActivity() {
                          savedDeviceId = savedDeviceId,
                          screenshots = screenshots,
                          linkRequest = linkRequest,
@@ -246,7 +309,7 @@ index b07e364..d0b8702 100644
                          pipMode = pipMode,
                          hideSessionTools = hideSessionTools,
                          pipSupported = supportsCameraPip,
-@@ -850,6 +887,7 @@ private fun MirrorScreen(
+@@ -850,6 +889,7 @@ private fun MirrorScreen(
      savedDeviceId: String?,
      screenshots: ScreenshotViewModel,
      linkRequest: LinkRequest,
@@ -254,7 +317,7 @@ index b07e364..d0b8702 100644
      pipMode: Boolean,
      hideSessionTools: Boolean,
      pipSupported: Boolean,
-@@ -990,7 +1028,7 @@ private fun MirrorScreen(
+@@ -990,7 +1030,7 @@ private fun MirrorScreen(
          // permanently unapplied: the banner never cleared, and applying it reconnected with the
          // same override and the same mismatch.
          activeSettings?.let {
@@ -263,9 +326,41 @@ index b07e364..d0b8702 100644
          } == true
      val snackbar = remember { SnackbarHostState() }
      // The question is about this session's settings. Once nothing is waiting — the session
+@@ -1090,18 +1130,29 @@ private fun MirrorScreen(
+             .testTag("mirror-content"),
+         contentAlignment = Alignment.Center,
+     ) {
++        val authorising = checkup?.steps?.any { it.stage == CheckupStage.AUTHORIZE &&
++            it.status == StageStatus.RUNNING } == true
++        val authorisationFailed = checkup?.failedStage == CheckupStage.AUTHORIZE
++        val allowDebugging = "Надень Quest и нажми Allow debugging в очках."
+         when (val current = state) {
+             is MirrorUiState.Connecting -> if (hideSessionTools) {
+                 CameraPipStatus(R.string.camera_pip_connecting)
+             } else {
+-                ConnectionStatus(current.status, connecting = true, onDismiss = onDisconnect, checkup = checkup)
++                ConnectionStatus(
++                    if (authorising) allowDebugging else current.status,
++                    connecting = true,
++                    onDismiss = onDisconnect,
++                    checkup = checkup,
++                    simpleAuthorisation = authorising,
++                )
+             }
+
+             is MirrorUiState.Failed -> if (hideSessionTools) {
+                 CameraPipStatus(R.string.camera_pip_failed)
+             } else ConnectionStatus(
+-                message = current.message,
++                message = if (authorisationFailed) "$allowDebugging Затем нажми «Повторить»." else current.message,
+                 connecting = false,
++                simpleAuthorisation = authorisationFailed,
+                 onRetry = viewModel::reconnect,
+                 onDismiss = onDisconnect,
+                 showGenericHint = !current.guided,
 diff --git a/app/src/main/java/com/scrcpy/remote/ui/MonoRelayActivity.kt b/app/src/main/java/com/scrcpy/remote/ui/MonoRelayActivity.kt
 new file mode 100644
-index 0000000..15a8127
+index 0000000..f95dee9
 --- /dev/null
 +++ b/app/src/main/java/com/scrcpy/remote/ui/MonoRelayActivity.kt
 @@ -0,0 +1,286 @@
@@ -377,12 +472,12 @@ index 0000000..15a8127
 +                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
 +                    val error = failure
 +                    Text(when {
-+                        searching -> "Ищем Quest в локальной сети…"
++                        searching -> "Ищем Quest…"
 +                        error != null -> "Не удалось подключиться"
 +                        else -> "Готово к подключению"
 +                    }, style = MaterialTheme.typography.titleSmall)
 +                    Text(when {
-+                        searching -> "Проверяем подключение и сохранённый адрес."
++                        searching -> "Quest должен быть включён."
 +                        error != null -> error
 +                        else -> "Подключи телефон и Quest к одной сети."
 +                    }, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -396,7 +491,7 @@ index 0000000..15a8127
 +                        rows.forEach { QualityRow(it) }
 +                    }
 +                }
-+                Text(presets.firstOrNull { it.id == selected }?.detail ?: "Сам подберёт качество",
++                Text(presets.firstOrNull { it.id == selected }?.caption ?: "Подбирает качество",
 +                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
 +            }
 +            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -557,7 +652,7 @@ index 0000000..15a8127
 +}
 diff --git a/app/src/main/java/com/scrcpy/remote/ui/MonoRelayQuality.kt b/app/src/main/java/com/scrcpy/remote/ui/MonoRelayQuality.kt
 new file mode 100644
-index 0000000..b5e7b13
+index 0000000..903d04a
 --- /dev/null
 +++ b/app/src/main/java/com/scrcpy/remote/ui/MonoRelayQuality.kt
 @@ -0,0 +1,66 @@
@@ -576,8 +671,8 @@ index 0000000..b5e7b13
 +    val fps: Int,
 +    val bitrate: Int,
 +    val audioBufferMs: Int,
++    val caption: String,
 +) {
-+    val detail get() = "$maxSize px · до $fps FPS · $bitrate Мбит/с"
 +
 +    fun applyTo(settings: MirrorSettings): MirrorSettings = settings.copy(
 +        maxSize = maxSize,
@@ -592,7 +687,7 @@ index 0000000..b5e7b13
 +            return (0 until data.length()).map { index ->
 +                val item = data.getJSONObject(index)
 +                MonoRelayPreset(item.getString("id"), item.getString("title"), item.getInt("maxSize"),
-+                    item.getInt("fps"), item.getInt("bitRateMbps"), item.getInt("audioBufferMs"))
++                    item.getInt("fps"), item.getInt("bitRateMbps"), item.getInt("audioBufferMs"), item.getString("caption"))
 +            }
 +        }
 +    }

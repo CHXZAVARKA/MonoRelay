@@ -9,8 +9,7 @@ struct StreamPreset: Decodable, Identifiable {
     let bitRateMbps: Int
     let videoBufferMs: Int
     let audioBufferMs: Int
-
-    var detail: String { "\(maxSize) px · до \(fps) FPS · \(bitRateMbps) Мбит/с" }
+    let caption: String
 
     static let catalog: [StreamPreset] = {
         guard let url = Bundle.main.url(forResource: "stream-presets", withExtension: "json"),
@@ -49,8 +48,8 @@ final class Session: ObservableObject {
 
     var qualityDetail: String {
         guard let preset = activePreset else { return "" }
-        if selectedPreset != AdaptiveQuality.id { return preset.detail }
-        return phase == .streaming ? "Сейчас \(preset.title.lowercased()) · \(preset.detail)" : "Сам подберёт качество"
+        if selectedPreset != AdaptiveQuality.id { return preset.caption }
+        return phase == .streaming ? "Сейчас: \(preset.title)" : "Подбирает качество"
     }
 
     init(preferences: UserDefaults = .standard) {
@@ -387,9 +386,9 @@ struct HomeView: View {
     private var statusTitle: String {
         switch session.phase {
         case .idle: "Готово к подключению"
-        case .searching: "Ищем Quest в локальной сети…"
-        case .starting: "Ожидаем изображение с Quest…"
-        case .streaming: "Трансляция запущена"
+        case .searching: "Ищем Quest…"
+        case .starting: "Ждём видео…"
+        case .streaming: "Трансляция идёт"
         case .failed: "Не удалось подключиться"
         }
     }
@@ -397,7 +396,7 @@ struct HomeView: View {
     private var statusDetail: String {
         switch session.phase {
         case .idle: "Подключи Mac и Quest к одной сети."
-        case .searching: "Проверяем подключение и сохранённые адреса."
+        case .searching: "Quest должен быть включён."
         case .starting: "Если очки спят, разбуди их."
         case .streaming: "Изображение открыто в отдельном окне."
         case .failed(let message): message
