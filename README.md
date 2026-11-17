@@ -1,48 +1,37 @@
 # MonoRelay
 
-MonoRelay is a small launcher for mirroring one trusted Meta Quest over local Wi‑Fi. Open it to start finding your headset immediately. Desktop builds remember the headset and working addresses locally and retry once after a dropped stream.
+MonoRelay показывает изображение с одного глаза Meta Quest в обычном окне. Стрим идёт по локальному Wi-Fi. Приложение запоминает шлем и пробует подключиться при запуске.
 
-## Builds
+## Установка
 
-- **macOS 14+** uses the native SwiftUI app and your installed scrcpy and ADB.
-- **Windows** has portable x64 and ARM64 builds with the official scrcpy and ADB included. Extract the full ZIP and open `MonoRelay.exe`. To build, install the .NET 10 SDK and run `python Windows/package.py win-x64 path/to/official-scrcpy.zip MonoRelay-Windows.zip` (or `win-arm64`). The script checks the official [scrcpy release archive](https://github.com/Genymobile/scrcpy/releases/tag/v5.0.1) before packaging it.
-- **Android 8+** is a [direct receiver preview](Android/README.md) built on Scrcpy Remote. Enter the headset address once and authorize this phone or tablet on the Quest.
+Скачай сборку в [Releases](https://github.com/CHXZAVARKA/MonoRelay/releases/latest).
 
-## Build on your Mac
+- macOS 14+. Установи `scrcpy` и `adb` по [инструкции](BUILD.md#macos), затем открой `MonoRelay.app`. Готовый ZIP собран для Apple Silicon и подписан локально. Если macOS блокирует запуск, собери приложение из исходников на своём Mac.
+- Windows. Выбери x64 для Intel и AMD или ARM64 для компьютера на ARM. Распакуй весь ZIP и запусти `MonoRelay.exe`.
+- Android 8+. Установи тестовый APK на телефон или планшет. [Как установить и подключить Quest](Android/README.md).
 
-Requirements: macOS 14 or later, Xcode Command Line Tools, Android Platform Tools, and scrcpy 5.0.1 or later.
+## Первое подключение
 
-```sh
-brew install scrcpy
-brew install --cask android-platform-tools
-./build.sh
-open .build/MonoRelay.app
-```
+1. Включи режим разработчика на Quest. В Meta VR Developer Hub открой Device Manager и включи ADB over Wi-Fi. Для первичной настройки может понадобиться USB. [Инструкция Meta](https://developers.meta.com/vr/documentation/native/android/ts-mqdh-basic-usage/).
+2. Подключи Quest и устройство, на котором смотришь стрим, к одной локальной сети.
+3. Открой MonoRelay. Если шлем не нашёлся, введи его IP из настроек Wi-Fi. Добавь порт через двоеточие, если он отличается от 5555. Подтверди запрос отладки в очках.
 
-1. Put the Mac and Quest on the same local network. Enable ADB over Wi-Fi using [Meta VR Developer Hub](https://developers.meta.com/vr/documentation/native/android/ts-mqdh-basic-usage/) and approve your Mac on the headset.
-2. For the first connection, open MonoRelay with your headset already visible over wireless ADB, or choose **Ввести IP…** and enter its IPv4 address. Include the port if the headset shows one. Approve local network access if macOS requests it.
-3. On later launches MonoRelay checks known ADB connections, discovers the remembered headset's ADB service over mDNS, and tries its saved addresses on the current network. When its connection can't be found, use the address field to connect manually.
+После перезагрузки Quest может потребоваться снова включить ADB по Wi-Fi. Если оба устройства в гостевой сети, проверь, разрешены ли соединения между ними. Включай беспроводную отладку в доверенной сети.
 
-Mac and Quest must be able to reach each other. Guest networks can prevent this. mDNS only helps while the headset advertises an active ADB service. You may need to re-enable ADB over Wi-Fi after a headset restart. Use legacy ADB only on networks you trust.
+## Качество
 
-## Display and sound
+Режим меняется в главном окне. Смена режима кратко переподключает стрим.
 
-Choose the quality in the main window. The three manual profiles are shared across platforms. Limits apply to the long edge of the captured frame.
-
-| Profile | Maximum size | Maximum FPS | Video bitrate | Desktop video buffer | Audio buffer |
+| Режим | Длинная сторона | FPS до | Битрейт видео | Буфер видео на компьютере | Буфер звука |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Задержка | 1280 px | 30 | 5 Mbps | 0 ms | 50 ms |
-| Баланс | 1600 px | 30 | 8 Mbps | 30 ms | 80 ms |
-| Качество | 1920 px | 60 | 16 Mbps | 60 ms | 120 ms |
+| Задержка | 1280 px | 30 | 5 Мбит/с | 0 мс | 50 мс |
+| Баланс | 1600 px | 30 | 8 Мбит/с | 30 мс | 80 мс |
+| Качество | 1920 px | 60 | 16 Мбит/с | 60 мс | 120 мс |
 
-**Авто** is the default on a new installation. It starts at **Баланс**, steps down after repeated frame skips, and can try one step up after 45 seconds of consistently delivered active video. A still scene leaves quality unchanged. It measures the foreground player and briefly reconnects when applying a change. Existing saved selections are kept.
+«Авто» начинает с «Баланса», снижает качество после серии пропусков кадров и может один раз повысить его после 45 секунд стабильного активного видео. Автоподстройка работает, пока окно стрима активно.
 
-Selecting a new profile on desktop reconnects the video stream. On Android, return to the launcher to change profiles before connecting again. Actual frame rate and quality depend on the headset output and connection. Both desktop builds use software decoding and duplicate playback audio. MonoRelay includes a one-eye framing preset for a Quest 3S with the 10992×8000 display override. Other sizes use the left half of the capture. Framing can vary with Horizon OS, apps, and capture sizes. On Mac, turn off the one-eye option in **MonoRelay → Settings** for a full capture. You can also turn off Mac audio there. Those settings take effect at the next connection.
+Подключение и кадр проверены на Quest 3S. На других шлемах обрезка может отличаться. На Mac полный кадр и звук можно настроить в `MonoRelay → Settings`.
 
-## Distribution
+[Сборка из исходников](BUILD.md) · [MIT License](LICENSE)
 
-MonoRelay is focused on launching a single trusted headset. For Meta's built-in eye selection and capture options, see [Meta VR Developer Hub](https://developers.meta.com/vr/documentation/spatial-sdk/ts-mqdh-media/). For managing multiple Android devices, see [Scrcpy GUI](https://github.com/SimonAKing/scrcpy-gui) or [Escrcpy](https://github.com/viarotel-org/escrcpy).
-
-`./build.sh /absolute/path/MonoRelay.app` builds for the current Mac architecture and signs the local bundle ad hoc. You can supply a Developer ID identity via `MONORELAY_SIGN_IDENTITY`. Public macOS binaries can be Developer ID signed and notarized with your own Apple account.
-
-MonoRelay uses [Genymobile scrcpy](https://github.com/Genymobile/scrcpy) and Android Debug Bridge. The macOS bundle uses system-installed tools. Windows packages include official binaries and their notices; the Android build retains its upstream attribution. The app does not use an online account or send telemetry. MonoRelay's own code is [MIT licensed](LICENSE). This is an independent project, unaffiliated with Meta, Apple, or Genymobile.
+Проект использует [scrcpy](https://github.com/Genymobile/scrcpy) и [Scrcpy Remote](https://github.com/dhun2666/scrcpy-client-for-android). Стрим остаётся в локальной сети.

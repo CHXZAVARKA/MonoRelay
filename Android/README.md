@@ -1,7 +1,24 @@
-# MonoRelay for Android
+# MonoRelay на Android
 
-This preview receives the headset stream directly over local Wi-Fi. It reuses [Scrcpy Remote 3.5.7](https://github.com/dhun2666/scrcpy-client-for-android/tree/889bae6a92172f4fb8fa19ca173e330ef64e2abf) for Android ADB authorization, scrcpy 5.0.1, and display/audio decoding. The MonoRelay launcher, three stream presets and one-eye cropping are the changes in `upstream.patch`. No desktop relay is needed.
+Телефон или планшет на Android 8+ принимает стрим с Quest напрямую по локальному Wi-Fi.
 
-On first launch, enter the Quest's IPv4 address. Add the debug port if it is different from 5555. If prompted, authorize this Android device on the Quest. Later launches try a saved Quest's local legacy ADB announcement, then its saved endpoint. If the headset is not advertising or its IP changed, enter the address again. Choose the quality in the launcher before connecting. In **Авто**, the foreground viewer adjusts the profile based on presented and skipped frames.
+## Установка APK
 
-Build for sideloading with JDK 21 and Android SDK 36, then run `./Android/build.sh` at the repository root. The APK is debug-signed for local testing. Use a dedicated release signing key before external distribution. The base engine is Apache-2.0; its licenses and dependency notices remain in the build. The launcher patch is available under this project's MIT license.
+Скачай `MonoRelay-0.4.0-Android-preview.apk` со страницы [Releases](https://github.com/CHXZAVARKA/MonoRelay/releases/latest). Открой файл на телефоне и подтверди установку из выбранного источника.
+
+Для установки с компьютера включи отладку по USB на телефоне, подключи его кабелем и подтверди запрос. Возьми серийный номер телефона из `adb devices`.
+
+```sh
+adb devices
+adb -s SERIAL install -r MonoRelay-0.4.0-Android-preview.apk
+```
+
+`SERIAL` указывает на телефон, на котором будет показан стрим. [Документация ADB](https://developer.android.com/tools/adb).
+
+## Подключение к Quest
+
+1. Включи ADB по Wi-Fi на Quest по [гайду Meta](https://developers.meta.com/vr/documentation/native/android/ts-mqdh-basic-usage/). Подключи телефон и Quest к одной сети.
+2. В MonoRelay введи IP очков, выбери качество и нажми «Подключить». Если порт отладки отличается от 5555, укажи его в поле IP через двоеточие.
+3. Подтверди запрос отладки в шлеме. При следующем запуске приложение попробует найти сохранённый Quest.
+
+Чтобы сменить режим вручную, вернись в главное окно и подключись снова.

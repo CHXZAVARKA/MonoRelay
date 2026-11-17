@@ -10,6 +10,10 @@
     <ApplicationIcon>MonoRelay.ico</ApplicationIcon>
     <Version>0.4.0</Version>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+  </PropertyGroup>
   <ItemGroup>
     <EmbeddedResource Include="../Resources/stream-presets.json" LogicalName="stream-presets.json" />
   </ItemGroup>
