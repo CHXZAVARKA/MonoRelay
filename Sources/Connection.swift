@@ -144,14 +144,24 @@ struct QuestSearch {
         return Headset(transport: transport, serial: serial, address: address, crop: crop)
     }
 
-    private func advertisedAddresses(for identity: String) -> [Endpoint] {
-        let prefix = "adb-" + identity
-        return tools.command(["mdns", "services"]).split(separator: "\n").compactMap { line in
+    private func advertisedAddresses(for identity: String?) -> [Endpoint] {
+        let prefix = identity.map { "adb-" + $0 }
+        var seen = Set<String>()
+        let addresses = tools.command(["mdns", "services"]).split(separator: "\n").compactMap { line -> Endpoint? in
             let words = line.split(whereSeparator: \.isWhitespace)
-            guard words.count == 3, words[0] == prefix || words[0].hasPrefix(prefix + "-"),
-                  ["_adb._tcp", "_adb-tls-connect._tcp"].contains(words[1].trimmingCharacters(in: CharacterSet(charactersIn: "."))) else { return nil }
-            return Endpoint(String(words[2]))
+            guard words.count == 3, words[0].hasPrefix("adb-") else { return nil }
+            let type = words[1].trimmingCharacters(in: CharacterSet(charactersIn: "."))
+            if let prefix {
+                guard words[0] == prefix || words[0].hasPrefix(prefix + "-"),
+                      type == "_adb._tcp" || type == "_adb-tls-connect._tcp" else { return nil }
+            } else if type != "_adb._tcp" {
+                return nil
+            }
+            guard let endpoint = Endpoint(String(words[2])), endpoint.isOnLocalNetwork,
+                  seen.insert(endpoint.value).inserted else { return nil }
+            return endpoint
         }
+        return identity == nil && addresses.count != 1 ? [] : addresses
     }
 
     private func wifiAddressFromUSB(_ usb: Device) -> Endpoint? {
@@ -191,10 +201,14 @@ struct QuestSearch {
                 }
             }
 
-            var addresses = identity.map(advertisedAddresses) ?? []
-            if let fallback { addresses.append(fallback) }
-            addresses += history.compactMap(Endpoint.init)
-            if let manual { addresses = [manual] }
+            var addresses: [Endpoint]
+            if let manual {
+                addresses = [manual]
+            } else {
+                addresses = advertisedAddresses(for: identity)
+                if let fallback { addresses.append(fallback) }
+                addresses += history.compactMap(Endpoint.init)
+            }
             for endpoint in addresses {
                 if cancelled() { break }
                 guard endpoint.isOnLocalNetwork else {

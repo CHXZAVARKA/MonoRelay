@@ -1,5 +1,5 @@
 diff --git a/app/build.gradle.kts b/app/build.gradle.kts
-index 6a5a392..0b1c14e 100644
+index 6a5a392..fbccf1a 100644
 --- a/app/build.gradle.kts
 +++ b/app/build.gradle.kts
 @@ -105,11 +105,11 @@ android {
@@ -12,8 +12,8 @@ index 6a5a392..0b1c14e 100644
          targetSdk = 36
 -        versionCode = 86
 -        versionName = "3.5.7"
-+        versionCode = 4
-+        versionName = "0.4.0"
++        versionCode = 5
++        versionName = "0.4.1"
          testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
          buildConfigField("String", "PUBLISHER_NAME", buildConfigString(publisherName))
          buildConfigField("String", "PUBLISHER_EMAIL", buildConfigString(publisherEmail))
@@ -265,10 +265,10 @@ index b07e364..d0b8702 100644
      // The question is about this session's settings. Once nothing is waiting — the session
 diff --git a/app/src/main/java/com/scrcpy/remote/ui/MonoRelayActivity.kt b/app/src/main/java/com/scrcpy/remote/ui/MonoRelayActivity.kt
 new file mode 100644
-index 0000000..7774302
+index 0000000..15a8127
 --- /dev/null
 +++ b/app/src/main/java/com/scrcpy/remote/ui/MonoRelayActivity.kt
-@@ -0,0 +1,156 @@
+@@ -0,0 +1,286 @@
 +package com.scrcpy.remote.ui
 +
 +import android.content.Context
@@ -279,32 +279,57 @@ index 0000000..7774302
 +import androidx.activity.ComponentActivity
 +import androidx.activity.compose.setContent
 +import androidx.compose.foundation.isSystemInDarkTheme
++import androidx.compose.foundation.rememberScrollState
++import androidx.compose.foundation.text.KeyboardActions
++import androidx.compose.foundation.text.KeyboardOptions
++import androidx.compose.foundation.verticalScroll
 +import androidx.compose.foundation.layout.Arrangement
 +import androidx.compose.foundation.layout.Column
-+import androidx.compose.foundation.layout.ExperimentalLayoutApi
-+import androidx.compose.foundation.layout.FlowRow
++import androidx.compose.foundation.layout.BoxWithConstraints
++import androidx.compose.foundation.layout.Row
 +import androidx.compose.foundation.layout.fillMaxSize
 +import androidx.compose.foundation.layout.fillMaxWidth
 +import androidx.compose.foundation.layout.padding
 +import androidx.compose.foundation.layout.safeDrawingPadding
++import androidx.compose.foundation.layout.size
++import androidx.compose.material.icons.Icons
++import androidx.compose.material.icons.outlined.Tv
++import androidx.compose.material.icons.outlined.Wifi
++import androidx.compose.material3.AlertDialog
 +import androidx.compose.material3.Button
 +import androidx.compose.material3.CircularProgressIndicator
-+import androidx.compose.material3.FilterChip
++import androidx.compose.material3.HorizontalDivider
++import androidx.compose.material3.Icon
 +import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.OutlinedButton
 +import androidx.compose.material3.OutlinedTextField
++import androidx.compose.material3.SegmentedButton
++import androidx.compose.material3.SegmentedButtonDefaults
++import androidx.compose.material3.SingleChoiceSegmentedButtonRow
++import androidx.compose.material3.Surface
 +import androidx.compose.material3.Text
 +import androidx.compose.material3.TextButton
 +import androidx.compose.material3.darkColorScheme
 +import androidx.compose.material3.lightColorScheme
++import androidx.compose.runtime.Composable
 +import androidx.compose.runtime.getValue
 +import androidx.compose.runtime.mutableStateOf
 +import androidx.compose.runtime.setValue
++import androidx.compose.ui.Alignment
 +import androidx.compose.ui.Modifier
++import androidx.compose.ui.graphics.Color
++import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.text.input.ImeAction
++import androidx.compose.ui.text.input.KeyboardType
 +import androidx.compose.ui.unit.dp
 +import androidx.lifecycle.lifecycleScope
 +import java.net.Inet4Address
 +import java.util.concurrent.atomic.AtomicBoolean
 +import kotlin.coroutines.resume
++import kotlinx.coroutines.Job
++import kotlinx.coroutines.channels.awaitClose
++import kotlinx.coroutines.flow.callbackFlow
++import kotlinx.coroutines.flow.firstOrNull
 +import kotlinx.coroutines.launch
 +import kotlinx.coroutines.suspendCancellableCoroutine
 +import kotlinx.coroutines.withTimeoutOrNull
@@ -316,60 +341,152 @@ index 0000000..7774302
 +    private val presets by lazy { MonoRelayPreset.read(this) }
 +    private var selected by mutableStateOf(AUTO_QUALITY)
 +    private var address by mutableStateOf("")
++    private var showAddress by mutableStateOf(false)
++    private var search: Job? = null
 +    private var searching by mutableStateOf(false)
++    private var failure by mutableStateOf<String?>(null)
 +
-+    @OptIn(ExperimentalLayoutApi::class)
 +    override fun onCreate(savedInstanceState: Bundle?) {
 +        super.onCreate(savedInstanceState)
 +        selected = preferences.getString("preset", AUTO_QUALITY) ?: AUTO_QUALITY
 +        address = preferences.getString("address", "") ?: ""
 +        setContent {
-+            MaterialTheme(colorScheme = if (isSystemInDarkTheme()) darkColorScheme() else lightColorScheme()) {
-+                Column(
-+                    Modifier.fillMaxSize().safeDrawingPadding().padding(24.dp),
-+                    verticalArrangement = Arrangement.spacedBy(14.dp),
-+                ) {
-+                    Text("Трансляция Quest", style = MaterialTheme.typography.headlineSmall)
-+                    OutlinedTextField(address, { address = it }, label = { Text("IP Quest") },
-+                        placeholder = { Text("192.168.1.42") }, singleLine = true,
-+                        enabled = !searching, modifier = Modifier.fillMaxWidth())
-+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-+                        val choices = listOf(AUTO_QUALITY to "Авто") + presets.map { it.id to it.label }
-+                        choices.forEach { (id, label) ->
-+                            FilterChip(selected = selected == id, onClick = {
-+                                selected = id
-+                                preferences.edit().putString("preset", id).apply()
-+                            }, label = { Text(label) }, enabled = !searching)
-+                        }
++            val palette = if (isSystemInDarkTheme()) darkColorScheme(primary = Color(0xFF8DBBFF))
++                else lightColorScheme(primary = Color(0xFF0969DA))
++            MaterialTheme(colorScheme = palette) {
++                Surface(Modifier.fillMaxSize()) { Home() }
++            }
++        }
++        if (savedInstanceState == null) connect()
++    }
++
++    @Composable
++    private fun Home() {
++        Column(
++            Modifier.fillMaxSize().safeDrawingPadding().verticalScroll(rememberScrollState()).padding(24.dp),
++            verticalArrangement = Arrangement.spacedBy(18.dp),
++        ) {
++            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
++                Icon(Icons.Outlined.Tv, null, Modifier.size(28.dp), tint = MaterialTheme.colorScheme.primary)
++                Text("Трансляция Quest", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
++            }
++            HorizontalDivider()
++            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
++                if (searching) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
++                else Icon(Icons.Outlined.Wifi, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
++                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
++                    val error = failure
++                    Text(when {
++                        searching -> "Ищем Quest в локальной сети…"
++                        error != null -> "Не удалось подключиться"
++                        else -> "Готово к подключению"
++                    }, style = MaterialTheme.typography.titleSmall)
++                    Text(when {
++                        searching -> "Проверяем подключение и сохранённый адрес."
++                        error != null -> error
++                        else -> "Подключи телефон и Quest к одной сети."
++                    }, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
++                }
++            }
++            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
++                val choices = listOf(AUTO_QUALITY to "Авто") + presets.map { it.id to it.label }
++                BoxWithConstraints(Modifier.fillMaxWidth()) {
++                    val rows = if (maxWidth < 306.dp) choices.chunked(2) else listOf(choices)
++                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
++                        rows.forEach { QualityRow(it) }
 +                    }
-+                    Text(presets.firstOrNull { it.id == selected }?.detail ?: "Сам подберёт качество",
-+                        style = MaterialTheme.typography.bodySmall)
-+                    if (searching) {
-+                        CircularProgressIndicator()
-+                        Text("Ищем Quest в локальной сети…")
-+                    } else {
-+                        Button(onClick = { connect() }, enabled = parse(address) != null) { Text("Подключить") }
-+                        TextButton(onClick = {
-+                            startActivity(Intent(this@MonoRelayActivity, MainActivity::class.java)
-+                                .putExtra(MainActivity.EXTRA_OPEN_PAIRING, true))
-+                        }) { Text("Сопряжение ADB…") }
-+                    }
++                }
++                Text(presets.firstOrNull { it.id == selected }?.detail ?: "Сам подберёт качество",
++                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
++            }
++            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
++                OutlinedButton(onClick = { showAddress = true }, enabled = !searching) { Text("Ввести IP…") }
++                Button(onClick = { if (searching) cancelSearch() else connect() }) {
++                    Text(if (searching) "Отменить" else "Подключить")
 +                }
 +            }
 +        }
-+        if (savedInstanceState == null && parse(address) != null) connect(useDiscovery = true)
++        if (showAddress) AddressDialog()
 +    }
 +
-+    private fun connect(useDiscovery: Boolean = false) {
-+        val typed = parse(address) ?: return
++    @Composable
++    private fun QualityRow(choices: List<Pair<String, String>>) {
++        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
++            choices.forEachIndexed { index, (id, label) ->
++                SegmentedButton(
++                    selected = selected == id,
++                    onClick = {
++                        selected = id
++                        preferences.edit().putString("preset", id).apply()
++                    },
++                    shape = SegmentedButtonDefaults.itemShape(index = index, count = choices.size),
++                    icon = {},
++                    label = { Text(label, maxLines = 1) },
++                )
++            }
++        }
++    }
++
++    @Composable
++    private fun AddressDialog() {
++        val endpoint = parse(address)
++        AlertDialog(
++            onDismissRequest = { showAddress = false },
++            title = { Text("Подключиться по адресу") },
++            text = {
++                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
++                    Text("Возьми IP из настроек Wi-Fi в очках. Добавь порт, если он отличается от 5555.")
++                    OutlinedTextField(address, { address = it }, label = { Text("IP Quest") },
++                        placeholder = { Text("192.168.1.42:5555") }, singleLine = true,
++                        isError = address.isNotBlank() && endpoint == null,
++                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Go),
++                        keyboardActions = KeyboardActions(onGo = { endpoint?.let { connectManual(it) } }),
++                        modifier = Modifier.fillMaxWidth())
++                    TextButton(onClick = {
++                        showAddress = false
++                        startActivity(Intent(this@MonoRelayActivity, MainActivity::class.java)
++                            .putExtra(MainActivity.EXTRA_OPEN_PAIRING, true))
++                    }) { Text("Шлем показывает код сопряжения") }
++                }
++            },
++            dismissButton = { TextButton(onClick = { showAddress = false }) { Text("Отмена") } },
++            confirmButton = {
++                Button(enabled = endpoint != null, onClick = { endpoint?.let { connectManual(it) } }) {
++                    Text("Подключить")
++                }
++            },
++        )
++    }
++
++    private fun connectManual(endpoint: Address) {
++        showAddress = false
++        connect(endpoint)
++    }
++
++    private fun cancelSearch() {
++        search?.cancel()
++    }
++
++    private fun connect(manual: Address? = null) {
++        if (searching) return
 +        searching = true
-+        lifecycleScope.launch {
-+            val serial = preferences.getString("serial", null)
-+            val target = if (useDiscovery && serial != null) discover(serial) ?: typed else typed
-+            address = "${target.ip}:${target.port}"
-+            val options = "audio=playback&audioDup=true"
-+            startActivity(MirrorActivity.newIntent(this@MonoRelayActivity, target.ip, target.port, linkOptions = options))
-+            searching = false
++        failure = null
++        search = lifecycleScope.launch {
++            try {
++                val serial = preferences.getString("serial", null)
++                val endpoint = manual ?: findService(serial)?.let { resolve(it) }
++                    ?: preferences.getString("address", null)?.let { parse(it) }
++                if (endpoint == null) {
++                    failure = "Проверь Wi-Fi и отладку на шлеме. Если Quest не находится, введи IP вручную."
++                    return@launch
++                }
++                address = "${endpoint.ip}:${endpoint.port}"
++                val options = "audio=playback&audioDup=true"
++                startActivity(MirrorActivity.newIntent(this@MonoRelayActivity, endpoint.ip, endpoint.port, linkOptions = options))
++            } finally {
++                searching = false
++                search = null
++            }
 +        }
 +    }
 +
@@ -385,43 +502,56 @@ index 0000000..7774302
 +        return if (port in 1..65535) Address(octets.joinToString("."), port) else null
 +    }
 +
++    private suspend fun findService(serial: String?): NsdServiceInfo? {
++        val nsd = getSystemService(NsdManager::class.java) ?: return null
++        val services = callbackFlow {
++            val listener = object : NsdManager.DiscoveryListener {
++                override fun onDiscoveryStarted(type: String) = Unit
++                override fun onDiscoveryStopped(type: String) { close() }
++                override fun onStopDiscoveryFailed(type: String, code: Int) { close() }
++                override fun onStartDiscoveryFailed(type: String, code: Int) { close() }
++                override fun onServiceLost(info: NsdServiceInfo) { trySend(info to false) }
++                override fun onServiceFound(info: NsdServiceInfo) {
++                    if (info.serviceName.startsWith("adb-") &&
++                        (serial == null || info.serviceName == "adb-$serial")) trySend(info to true)
++                }
++            }
++            runCatching { nsd.discoverServices("_adb._tcp.", NsdManager.PROTOCOL_DNS_SD, listener) }
++                .onFailure { close() }
++            awaitClose { runCatching { nsd.stopServiceDiscovery(listener) } }
++        }
++        if (serial != null) {
++            return withTimeoutOrNull(1600) { services.firstOrNull { it.second }?.first }
++        }
++        // Without a saved serial, only suggest an address if discovery found one service.
++        val candidates = mutableMapOf<String, NsdServiceInfo>()
++        withTimeoutOrNull(1800) {
++            services.collect { (info, found) ->
++                if (found) candidates[info.serviceName] = info else candidates.remove(info.serviceName)
++            }
++        }
++        return candidates.values.singleOrNull()
++    }
++
 +    @Suppress("DEPRECATION")
-+    private suspend fun discover(serial: String): Address? = withTimeoutOrNull(1600) {
++    private suspend fun resolve(service: NsdServiceInfo): Address? = withTimeoutOrNull(1400) {
 +        suspendCancellableCoroutine { continuation ->
 +            val nsd = getSystemService(NsdManager::class.java)
 +            if (nsd == null) { continuation.resume(null); return@suspendCancellableCoroutine }
 +            val completed = AtomicBoolean(false)
-+            val resolving = AtomicBoolean(false)
-+            val listener = object : NsdManager.DiscoveryListener {
-+                override fun onDiscoveryStarted(type: String) = Unit
-+                override fun onDiscoveryStopped(type: String) = Unit
-+                override fun onStopDiscoveryFailed(type: String, code: Int) = Unit
-+                override fun onServiceLost(info: NsdServiceInfo) = Unit
-+                override fun onStartDiscoveryFailed(type: String, code: Int) = finish(null)
-+                override fun onServiceFound(info: NsdServiceInfo) {
-+                    if (info.serviceName != "adb-$serial" || !resolving.compareAndSet(false, true)) return
-+                    runCatching {
-+                        nsd.resolveService(info, object : NsdManager.ResolveListener {
-+                            override fun onResolveFailed(info: NsdServiceInfo, code: Int) = finish(null)
-+                            override fun onServiceResolved(info: NsdServiceInfo) {
-+                                val ip = (info.host as? Inet4Address)?.hostAddress
-+                                finish(ip?.let { parse("$it:${info.port}") })
-+                            }
-+                        })
-+                    }.onFailure { finish(null) }
-+                }
-+
-+                fun finish(found: Address?) {
-+                    if (!completed.compareAndSet(false, true)) return
-+                    runCatching { nsd.stopServiceDiscovery(this) }
-+                    continuation.resume(found)
-+                }
++            fun finish(address: Address?) {
++                if (completed.compareAndSet(false, true)) continuation.resume(address)
 +            }
-+            continuation.invokeOnCancellation {
-+                if (completed.compareAndSet(false, true)) runCatching { nsd.stopServiceDiscovery(listener) }
-+            }
-+            runCatching { nsd.discoverServices("_adb._tcp.", NsdManager.PROTOCOL_DNS_SD, listener) }
-+                .onFailure { listener.finish(null) }
++            continuation.invokeOnCancellation { completed.set(true) }
++            runCatching {
++                nsd.resolveService(service, object : NsdManager.ResolveListener {
++                    override fun onResolveFailed(info: NsdServiceInfo, code: Int) = finish(null)
++                    override fun onServiceResolved(info: NsdServiceInfo) {
++                        val ip = (info.host as? Inet4Address)?.hostAddress
++                        finish(ip?.let { parse("$it:${info.port}") })
++                    }
++                })
++            }.onFailure { finish(null) }
 +        }
 +    }
 +}

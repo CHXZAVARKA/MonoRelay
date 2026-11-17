@@ -55,13 +55,14 @@ internal sealed class RelayForm : Form
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
 
-    private sealed record QualityChoice(string Id, string Title);
     private AdaptiveQuality adaptive = new();
     private readonly QuestConnection connection = new(Path.Combine(AppContext.BaseDirectory, "Tools"));
     private readonly Label title = new() { Text = "Трансляция Quest", AutoSize = true, Font = new Font("Segoe UI", 17, FontStyle.Bold) };
-    private readonly Label status = new() { AutoSize = true, MaximumSize = new Size(400, 0), Text = "Готово к подключению" };
-    private readonly Label hint = new() { AutoSize = true, MaximumSize = new Size(400, 0), ForeColor = SystemColors.GrayText };
-    private readonly ComboBox mode = new() { DropDownStyle = ComboBoxStyle.DropDownList, Width = 174, AccessibleName = "Режим трансляции" };
+    private readonly Label status = new() { AutoSize = true, Font = new Font("Segoe UI", 10, FontStyle.Bold) };
+    private readonly Label statusDetail = new() { AutoSize = true, MaximumSize = new Size(365, 0), ForeColor = SystemColors.GrayText };
+    private readonly Label statusIcon = new() { AutoSize = true, Font = new Font("Segoe MDL2 Assets", 12), Margin = new Padding(0, 3, 8, 0) };
+    private readonly Label hint = new() { AutoSize = true, ForeColor = SystemColors.GrayText, Margin = new Padding(1, 5, 0, 0) };
+    private string selectedQuality = AdaptiveQuality.Id;
     private readonly Button action = new() { AutoSize = true, Text = "Подключить" };
     private readonly Button manual = new() { AutoSize = true, Text = "Ввести IP…" };
     private readonly System.Windows.Forms.Timer frame = new() { Interval = 200 };
@@ -76,33 +77,53 @@ internal sealed class RelayForm : Form
     internal RelayForm(Preset[] presets)
     {
         this.presets = presets;
-        Text = "MonoRelay"; ClientSize = new Size(445, 238);
+        Text = "MonoRelay"; ClientSize = new Size(440, 270);
         Icon = System.Drawing.Icon.ExtractAssociatedIcon(Application.ExecutablePath);
         Font = new Font("Segoe UI", 10);
         AutoScaleMode = AutoScaleMode.Dpi;
         StartPosition = FormStartPosition.CenterScreen;
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
-        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, Padding = new Padding(22, 15, 22, 15) };
-        var modes = new FlowLayoutPanel { Dock = DockStyle.Fill, AutoSize = true, WrapContents = false };
-        modes.Controls.Add(new Label { Text = "Режим", AutoSize = true, Margin = new Padding(0, 6, 8, 0), UseMnemonic = false });
-        modes.Controls.Add(mode);
-        var buttons = new FlowLayoutPanel { FlowDirection = FlowDirection.RightToLeft, Dock = DockStyle.Fill, AutoSize = true };
-        buttons.Controls.Add(action);
-        buttons.Controls.Add(manual);
-        layout.Controls.Add(title);
-        layout.Controls.Add(status);
-        layout.Controls.Add(modes);
-        layout.Controls.Add(hint);
-        layout.Controls.Add(buttons);
+        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 5, Padding = new Padding(24) };
+        foreach (int height in new[] { 42, 13, 65, 62 }) layout.RowStyles.Add(new RowStyle(SizeType.Absolute, height));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        var header = new FlowLayoutPanel { Dock = DockStyle.Fill, WrapContents = false, Margin = Padding.Empty };
+        header.Controls.Add(new PictureBox { Image = Icon?.ToBitmap(), Size = new Size(28, 28),
+            SizeMode = PictureBoxSizeMode.StretchImage, Margin = new Padding(0, 0, 10, 0) });
+        title.Margin = Padding.Empty;
+        header.Controls.Add(title);
+        layout.Controls.Add(header, 0, 0);
+        layout.Controls.Add(new Panel { Height = 1, Dock = DockStyle.Top, BackColor = SystemColors.ControlDark,
+            Margin = Padding.Empty }, 0, 1);
+
+        var state = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1, Margin = Padding.Empty };
+        state.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 26));
+        state.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        var messages = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown,
+            WrapContents = false, Margin = Padding.Empty };
+        messages.Controls.AddRange([status, statusDetail]);
+        state.Controls.Add(statusIcon, 0, 0);
+        state.Controls.Add(messages, 1, 0);
+        layout.Controls.Add(state, 0, 2);
+
+        var quality = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 2, ColumnCount = 1, Margin = Padding.Empty };
+        quality.RowStyles.Add(new RowStyle(SizeType.Absolute, 31));
+        quality.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        quality.Controls.Add(CreateModes(), 0, 0);
+        quality.Controls.Add(hint, 0, 1);
+        layout.Controls.Add(quality, 0, 3);
+
+        var buttons = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Margin = Padding.Empty };
+        buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        buttons.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 50));
+        manual.Anchor = AnchorStyles.Left | AnchorStyles.Top;
+        action.Anchor = AnchorStyles.Right | AnchorStyles.Top;
+        buttons.Controls.Add(manual, 0, 0);
+        buttons.Controls.Add(action, 1, 0);
+        layout.Controls.Add(buttons, 0, 4);
         Controls.Add(layout);
-        var choices = new[] { new QualityChoice(AdaptiveQuality.Id, "Авто") }
-            .Concat(presets.Select(preset => new QualityChoice(preset.Id, preset.Title))).ToArray();
-        mode.DisplayMember = nameof(QualityChoice.Title);
-        mode.DataSource = choices;
-        mode.SelectedIndex = Math.Max(0, Array.FindIndex(choices, choice => choice.Id == preferences.Preset));
         UpdateQualityDetail();
-        mode.SelectedIndexChanged += (_, _) => SetPreset();
+        ShowState("Готово к подключению", "Подключи компьютер и Quest к одной сети.", "Подключить", true);
         action.Click += async (_, _) =>
         {
             if (player is not null || pending is not null) Stop();
@@ -116,7 +137,7 @@ internal sealed class RelayForm : Form
             if (player.MainWindowHandle == IntPtr.Zero) return;
             sawWindow = true;
             UpdateQualityDetail();
-            ShowState("Трансляция запущена", "Остановить", false);
+            ShowState("Трансляция запущена", "Изображение открыто в отдельном окне.", "Остановить", false);
             frame.Stop();
         };
         Shown += async (_, _) => await Start();
@@ -124,9 +145,32 @@ internal sealed class RelayForm : Form
         AcceptButton = action;
     }
 
-    private string SelectedQuality => (mode.SelectedItem as QualityChoice)?.Id ?? AdaptiveQuality.Id;
-    private bool IsAuto => SelectedQuality == AdaptiveQuality.Id;
-    private Preset Current => IsAuto ? presets[adaptive.Index] : presets.First(p => p.Id == SelectedQuality);
+    private Control CreateModes()
+    {
+        var choices = new[] { (Id: AdaptiveQuality.Id, Title: "Авто") }
+            .Concat(presets.Select(preset => (preset.Id, preset.Title))).ToArray();
+        var modes = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = choices.Length, RowCount = 1,
+            Margin = Padding.Empty, AccessibleName = "Режим трансляции" };
+        selectedQuality = choices.FirstOrDefault(choice => choice.Id == preferences.Preset).Id ?? AdaptiveQuality.Id;
+        foreach (var choice in choices)
+        {
+            modes.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100f / choices.Length));
+            var button = new RadioButton { Text = choice.Title, Appearance = Appearance.Button,
+                Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, Margin = Padding.Empty,
+                Checked = choice.Id == selectedQuality };
+            button.CheckedChanged += (_, _) =>
+            {
+                if (!button.Checked || selectedQuality == choice.Id) return;
+                selectedQuality = choice.Id;
+                SetPreset();
+            };
+            modes.Controls.Add(button);
+        }
+        return modes;
+    }
+
+    private bool IsAuto => selectedQuality == AdaptiveQuality.Id;
+    private Preset Current => IsAuto ? presets[adaptive.Index] : presets.First(p => p.Id == selectedQuality);
 
     private void UpdateQualityDetail()
     {
@@ -135,9 +179,11 @@ internal sealed class RelayForm : Form
             : sawWindow ? $"Сейчас {preset.Title.ToLowerInvariant()} · {preset.Detail}" : "Сам подберёт качество";
     }
 
-    private void ShowState(string message, string button, bool canEnterIP)
+    private void ShowState(string message, string detail, string button, bool canEnterIP)
     {
         status.Text = message;
+        statusDetail.Text = detail;
+        statusIcon.Text = sawWindow ? "\ue73e" : "\ue701";
         action.Text = button;
         manual.Enabled = canEnterIP;
     }
@@ -163,7 +209,7 @@ internal sealed class RelayForm : Form
     private void SetPreset()
     {
         adaptive = new();
-        preferences = preferences with { Preset = SelectedQuality };
+        preferences = preferences with { Preset = selectedQuality };
         preferences.Save();
         UpdateQualityDetail();
         RestartPlayer();
@@ -173,7 +219,7 @@ internal sealed class RelayForm : Form
     {
         if (player is null || restartForPreset) return;
         restartForPreset = true;
-        ShowState("Применяем режим…", "Отменить", false);
+        ShowState("Применяем режим…", "Стрим коротко переподключится.", "Отменить", false);
         EndPlayer(player);
     }
 
@@ -189,7 +235,7 @@ internal sealed class RelayForm : Form
         var previous = player;
         player = null;
         if (previous is not null) EndPlayer(previous);
-        ShowState("Готово к подключению", "Подключить", true);
+        ShowState("Готово к подключению", "Подключи компьютер и Quest к одной сети.", "Подключить", true);
     }
 
     private static void EndPlayer(Process process)
@@ -205,19 +251,19 @@ internal sealed class RelayForm : Form
         Stop();
         if (!connection.IsInstalled)
         {
-            ShowState("Распакуй ZIP целиком: рядом с приложением нужна папка Tools.", "Подключить", false);
+            ShowState("Не удалось запустить MonoRelay", "Распакуй ZIP целиком. Рядом с приложением нужна папка Tools.", "Подключить", false);
             return;
         }
         if (endpoint is not null && !endpoint.IsLocal())
         {
-            ShowState("Этот адрес вне локальной сети компьютера.", "Подключить", true);
+            ShowState("Не удалось подключиться", "Этот IP не в локальной сети компьютера.", "Подключить", true);
             return;
         }
 
         var id = generation;
         using var operation = new CancellationTokenSource();
         pending = operation;
-        ShowState("Ищем Quest в локальной сети…", "Отменить", false);
+        ShowState("Ищем Quest в локальной сети…", "Проверяем подключение и сохранённые адреса.", "Отменить", false);
         try
         {
             var found = await Task.Run(async () => await connection.Find(preferences.Serial,
@@ -226,7 +272,7 @@ internal sealed class RelayForm : Form
             pending = null;
             if (found is null)
             {
-                ShowState("Quest не найден. Проверь Wi-Fi и беспроводную отладку.", "Подключить", true);
+                ShowState("Не удалось подключиться", "Проверь Wi-Fi и отладку на шлеме. Можно ввести IP вручную.", "Подключить", true);
                 return;
             }
             var addresses = preferences.Addresses ?? [];
@@ -241,7 +287,7 @@ internal sealed class RelayForm : Form
         {
             if (id != generation) return;
             pending = null;
-            ShowState("Не удалось запустить подключение. Проверь папку Tools.", "Подключить", true);
+            ShowState("Не удалось подключиться", "Проверь содержимое папки Tools.", "Подключить", true);
         }
     }
 
@@ -285,7 +331,7 @@ internal sealed class RelayForm : Form
                     if (restartForPreset) await Start(keepAdaptive: true);
                     else if (exit == 2 && !retry) await Start(retry: true, keepAdaptive: true);
                     else if (exit == 0) Stop();
-                    else ShowState("Трансляция прервалась. Проверь Wi-Fi и состояние Quest.", "Подключить", true);
+                    else ShowState("Трансляция прервалась", "Проверь Wi-Fi и состояние Quest.", "Подключить", true);
                 });
         };
         try
@@ -300,7 +346,7 @@ internal sealed class RelayForm : Form
         player = process;
         if (automatic) process.BeginOutputReadLine();
         sawWindow = false;
-        ShowState("Ожидаем изображение с Quest…", "Отменить", false);
+        ShowState("Ожидаем изображение с Quest…", "Если очки спят, разбуди их.", "Отменить", false);
         frame.Start();
     }
 

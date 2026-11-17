@@ -106,7 +106,7 @@ internal sealed class QuestConnection(string engine)
         {
             token.ThrowIfCancellationRequested();
             var devices = Rows(await AdbCall(token, "devices", "-l"));
-            var usb = devices.Where(d => d[1] == "device" && d.Contains("model:Quest_3S") && d.Any(t => t.StartsWith("usb:"))).ToArray();
+            var usb = devices.Where(d => d[1] == "device" && d.Any(t => t.StartsWith("model:Quest", StringComparison.OrdinalIgnoreCase)) && d.Any(t => t.StartsWith("usb:"))).ToArray();
             if (known is null && usb.Length == 1)
             {
                 var verifiedUsb = await Verify(usb[0][0], null, null, token);
@@ -126,14 +126,21 @@ internal sealed class QuestConnection(string engine)
             if (manual is not null) candidates.Add(manual);
             else
             {
-                if (known is not null)
+                var advertised = new HashSet<Endpoint>();
+                string? service = known is null ? null : "adb-" + known;
+                foreach (var fields in Rows(await AdbCall(token, "mdns", "services")))
                 {
-                    string service = "adb-" + known;
-                    foreach (var fields in Rows(await AdbCall(token, "mdns", "services")))
-                        if (fields.Length == 3 && (fields[0] == service || fields[0].StartsWith(service + "-")) &&
-                            fields[1].TrimEnd('.') is "_adb._tcp" or "_adb-tls-connect._tcp" &&
-                            Endpoint.Parse(fields[2]) is { } advertised) candidates.Add(advertised);
+                    if (fields.Length != 3 || !fields[0].StartsWith("adb-")) continue;
+                    var type = fields[1].TrimEnd('.');
+                    if (service is null)
+                    {
+                        if (type != "_adb._tcp") continue;
+                    }
+                    else if ((fields[0] != service && !fields[0].StartsWith(service + "-")) ||
+                             type is not ("_adb._tcp" or "_adb-tls-connect._tcp")) continue;
+                    if (Endpoint.Parse(fields[2]) is { } endpoint && endpoint.IsLocal()) advertised.Add(endpoint);
                 }
+                if (known is not null || advertised.Count == 1) candidates.AddRange(advertised);
                 candidates.AddRange(history.Take(8).Select(Endpoint.Parse).OfType<Endpoint>());
             }
             foreach (var candidate in candidates)

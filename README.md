@@ -14,7 +14,7 @@ Download a build from [Releases](https://github.com/CHXZAVARKA/MonoRelay/release
 
 1. Enable developer mode on the headset. Open Device Manager in Meta VR Developer Hub and turn on ADB over Wi-Fi. The first setup may require a USB cable. [Meta's guide](https://developers.meta.com/vr/documentation/native/android/ts-mqdh-basic-usage/).
 2. Connect the headset and the receiving device to the same local network.
-3. Open MonoRelay. If it can't find the Quest, enter the IP address from the headset's Wi-Fi settings. Add `:port` if the debugging port differs from 5555. Approve the debugging prompt on the headset.
+3. Open MonoRelay. It looks for a wireless Quest and connects when it finds one candidate. If it cannot choose an address, select Enter IP (`Ввести IP…`) and enter the address from the headset's Wi-Fi settings. Add `:port` if the debugging port differs from 5555. Approve the debugging prompt on the headset.
 
 You may need to turn ADB over Wi-Fi back on after restarting the Quest. A guest network may block connections between devices. Use wireless debugging on a network you trust.
 
